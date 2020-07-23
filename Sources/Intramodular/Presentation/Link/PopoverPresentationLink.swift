@@ -39,34 +39,33 @@ public struct PopoverPresentationLink<Destination: View, Label: View>: Presentat
         )
     }
     
+    @ViewBuilder
     public var body: some View {
-        Group {
-            if horizontalSizeClass == .compact {
-                Button(action: present, label: { label }).sheet(
-                    isPresented: $isPresented.onSet {
-                        if self.isPresented == true && $0 == false {
-                            self._onDismiss()
-                        }
+        if horizontalSizeClass == .compact {
+            Button(action: present, label: { label }).sheet(
+                isPresented: $isPresented.onSet {
+                    if self.isPresented == true && $0 == false {
+                        self._onDismiss()
                     }
-                ) {
-                    CocoaHostingView(
-                        rootView: self.destination()
-                            .mergeEnvironmentBuilder(self.environmentBuilder)
-                    )
                 }
-            } else {
-                Button(action: present, label: { label }).popover(
-                    isPresented: $isPresented.onSet {
-                        if self.isPresented == true && $0 == false {
-                            self._onDismiss()
-                        }
+            ) {
+                CocoaHostingView(
+                    rootView: self.destination()
+                        .mergeEnvironmentBuilder(self.environmentBuilder)
+                )
+            }
+        } else {
+            Button(action: present, label: { label }).popover(
+                isPresented: $isPresented.onSet {
+                    if self.isPresented == true && $0 == false {
+                        self._onDismiss()
                     }
-                ) {
-                    CocoaHostingView(
-                        rootView: self.destination()
-                            .mergeEnvironmentBuilder(self.environmentBuilder)
-                    )
                 }
+            ) {
+                CocoaHostingView(
+                    rootView: self.destination()
+                        .mergeEnvironmentBuilder(self.environmentBuilder)
+                )
             }
         }
     }
