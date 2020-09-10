@@ -23,17 +23,11 @@ private struct KeyboardAvoidance: ViewModifier {
                 GeometryReader { geometry in
                     content
                         .padding(.bottom, self.padding)
-                        .onReceive(self.keyboardHeightPublisher, perform: { (keyboardHeight: CGFloat) in
+                        .onReceive(self.keyboardHeightPublisher, perform: { keyboardHeight in
                             if self.isSimple {
                                 self.padding = keyboardHeight > 0 ? keyboardHeight - geometry.safeAreaInsets.bottom : 0
                             } else {
-                                let leftCalc: CGFloat = UIResponder.firstResponder?.globalFrame?.maxY ?? 0
-                                let rightCalc: CGFloat = geometry.frame(in: .global).height - keyboardHeight
-                                let leftMin: CGFloat = leftCalc - rightCalc
-                                let rightMin: CGFloat = keyboardHeight
-                                let leftMax: CGFloat = 0
-                                let rightMax: CGFloat = min(leftMin, rightMin) - geometry.safeAreaInsets.bottom
-                                self.padding = max(leftMax, rightMax)
+                                self.padding = max(0, min((UIResponder.firstResponder?.globalFrame?.maxY ?? 0) - (geometry.frame(in: .global).height - keyboardHeight), keyboardHeight) - geometry.safeAreaInsets.bottom)
                             }
                         })
                         .animation(self.animation)
