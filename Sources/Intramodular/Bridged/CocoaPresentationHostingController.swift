@@ -31,16 +31,25 @@ open class CocoaPresentationHostingController: CocoaHostingController<AnyPresent
     }
     
     private func presentationDidChange(presentingViewController: UIViewController?) {
-        modalPresentationStyle = .init(presentation.content.presentationStyle)
+        mainView = presentation.content
+        
+        #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+        #if os(iOS) || targetEnvironment(macCatalyst)
+        hidesBottomBarWhenPushed = mainView.hidesBottomBarWhenPushed
+        #endif
+        modalPresentationStyle = .init(mainView.presentationStyle)
         presentationController?.delegate = presentationCoordinator
-        transitioningDelegate = presentation.content.presentationStyle.transitioningDelegate
+        _transitioningDelegate = mainView.presentationStyle.toTransitioningDelegate()
+        #elseif os(macOS)
+        fatalError("unimplemented")
+        #endif
         
         #if !os(tvOS)
-        if case let .popover(permittedArrowDirections) = presentation.content.presentationStyle {
+        if case let .popover(permittedArrowDirections) = mainView.presentationStyle {
             popoverPresentationController?.delegate = presentationCoordinator
             popoverPresentationController?.permittedArrowDirections = permittedArrowDirections
             
-            let sourceViewDescription = presentation.content.preferredSourceViewName.flatMap {
+            let sourceViewDescription = mainView.preferredSourceViewName.flatMap {
                 (presentingViewController as? _opaque_CocoaController)?._namedViewDescription(for: $0)
             }
             
@@ -52,11 +61,9 @@ open class CocoaPresentationHostingController: CocoaHostingController<AnyPresent
         }
         #endif
         
-        if presentation.content.presentationStyle != .automatic {
+        if mainView.presentationStyle != .automatic {
             view.backgroundColor = .clear
         }
-        
-        rootView.content = presentation.content
     }
     
     @objc required public init?(coder aDecoder: NSCoder) {
@@ -66,7 +73,15 @@ open class CocoaPresentationHostingController: CocoaHostingController<AnyPresent
     override open func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         
-        preferredContentSize = sizeThatFits(in: UIView.layoutFittingExpandedSize)
+        if preferredContentSize != UIView.layoutFittingExpandedSize {
+            preferredContentSize = sizeThatFits(in: UIView.layoutFittingExpandedSize)
+        }
+    }
+    
+    open override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        
+        view.frame.size = size
     }
 }
 

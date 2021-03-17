@@ -48,6 +48,7 @@ import SwiftUI
         }
         #endif
     }
+    
     fileprivate weak var viewController: AppKitOrUIKitViewController!
     
     public init(
@@ -107,14 +108,18 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
             return
         }
         
+        let viewControllerToBePresented = CocoaPresentationHostingController(
+            presentingViewController: viewController,
+            presentation: modal,
+            coordinator: .init(presentation: modal)
+        )
+        
         viewController.present(
-            CocoaPresentationHostingController(
-                presentingViewController: viewController,
-                presentation: modal,
-                coordinator: .init(presentation: modal)
-            ),
+            viewControllerToBePresented,
             animated: true
         ) {
+            viewControllerToBePresented.presentationController?.delegate = self
+            
             self.objectWillChange.send()
         }
         #elseif os(macOS)
@@ -191,6 +196,8 @@ extension CocoaPresentationCoordinator: UIAdaptivePresentationControllerDelegate
     }
     
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation.resetBinding()
+
         presentationController.presentingViewController.presentationCoordinator.objectWillChange.send()
     }
     

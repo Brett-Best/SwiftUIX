@@ -5,6 +5,14 @@
 import Swift
 import SwiftUI
 
+struct WeakBox<T: AnyObject> {
+    weak var value: T?
+    
+    init(_ value: T?) {
+        self.value = value
+    }
+}
+
 @usableFromInline
 final class ReferenceBox<T> {
     @usableFromInline
@@ -16,6 +24,16 @@ final class ReferenceBox<T> {
     }
 }
 
+final class WeakReferenceBox<T: AnyObject> {
+    @usableFromInline
+    weak var value: T?
+    
+    @usableFromInline
+    init(_ value: T?) {
+        self.value = value
+    }
+}
+
 @usableFromInline
 final class ObservableReferenceBox<T>: ObservableObject {
     @usableFromInline
@@ -23,6 +41,21 @@ final class ObservableReferenceBox<T>: ObservableObject {
     
     @usableFromInline
     init(_ value: T) {
+        self.value = value
+    }
+}
+
+@usableFromInline
+final class ObservableWeakReferenceBox<T: AnyObject>: ObservableObject {
+    @usableFromInline
+    weak var value: T? {
+        willSet {
+            objectWillChange.send()
+        }
+    }
+    
+    @usableFromInline
+    init(_ value: T?) {
         self.value = value
     }
 }

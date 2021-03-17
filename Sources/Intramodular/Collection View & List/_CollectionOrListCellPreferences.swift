@@ -7,7 +7,7 @@ import SwiftUI
 
 /// An internal structure used to manage cell preferences for `CocoaList` and `CollectionView`.
 @usableFromInline
-struct _CollectionOrListCellPreferences: Equatable {
+struct _CollectionOrListCellPreferences: Hashable {
     var isFocusable = true
     var isHighlightable = true
     var isReorderable = true
@@ -66,6 +66,7 @@ extension EnvironmentValues {
         static let defaultValue = false
     }
     
+    /// Returns whether the nearest focusable cell has focus.
     public var isCellFocused: Bool {
         get {
             self[IsCellFocused]
@@ -74,6 +75,7 @@ extension EnvironmentValues {
         }
     }
     
+    /// A Boolean value that indicates whether the cell associated with this environment is highlighted.
     public var isCellHighlighted: Bool {
         get {
             self[IsCellHighlighted]
@@ -82,6 +84,7 @@ extension EnvironmentValues {
         }
     }
     
+    /// A Boolean value that indicates whether the cell associated with this environment is selected.
     public var isCellSelected: Bool {
         get {
             self[IsCellSelected]

@@ -8,8 +8,15 @@ import SwiftUI
 #if os(iOS) || os(tvOS) || os(macOS) || targetEnvironment(macCatalyst)
 
 open class CocoaHostingController<Content: View>: AppKitOrUIKitHostingController<CocoaHostingControllerContent<Content>>, CocoaController {
-    let _presentationCoordinator: CocoaPresentationCoordinator
     var _namedViewDescriptions: [ViewName: _NamedViewDescription] = [:]
+    var _presentationCoordinator: CocoaPresentationCoordinator
+    #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+    var _transitioningDelegate: UIViewControllerTransitioningDelegate? {
+        didSet {
+            transitioningDelegate = _transitioningDelegate
+        }
+    }
+    #endif
     
     public var mainView: Content {
         get {
@@ -19,14 +26,8 @@ open class CocoaHostingController<Content: View>: AppKitOrUIKitHostingController
         }
     }
     
-    #if os(iOS) || targetEnvironment(macCatalyst)
-    override open var prefersStatusBarHidden: Bool {
-        return false
-    }
-    #endif
-    
     override public var presentationCoordinator: CocoaPresentationCoordinator {
-        return _presentationCoordinator
+        _presentationCoordinator
     }
     
     init(
@@ -38,8 +39,7 @@ open class CocoaHostingController<Content: View>: AppKitOrUIKitHostingController
         super.init(
             rootView: .init(
                 parent: nil,
-                content: mainView,
-                presentationCoordinator: presentationCoordinator
+                content: mainView
             )
         )
         
@@ -53,7 +53,8 @@ open class CocoaHostingController<Content: View>: AppKitOrUIKitHostingController
             hidesBottomBarWhenPushed = mainView.hidesBottomBarWhenPushed
             #endif
             modalPresentationStyle = .init(mainView.presentationStyle)
-            transitioningDelegate = mainView.presentationStyle.transitioningDelegate
+            presentationController?.delegate = presentationCoordinator
+            _transitioningDelegate = mainView.presentationStyle.toTransitioningDelegate()
             #elseif os(macOS)
             fatalError("unimplemented")
             #endif
