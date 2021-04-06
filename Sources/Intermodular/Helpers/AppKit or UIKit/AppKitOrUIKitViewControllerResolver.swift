@@ -7,7 +7,7 @@
 import SwiftUI
 import UIKit
 
-fileprivate struct UIViewControllerResolver: UIViewControllerRepresentable {
+fileprivate struct AppKitOrUIKitViewControllerResolver: UIViewControllerRepresentable {
     class UIViewControllerType: UIViewController {
         var onResolution: (UIViewController) -> Void = { _ in }
         var onAppear: (UIViewController) -> Void = { _ in }
@@ -74,11 +74,11 @@ fileprivate struct UIViewControllerResolver: UIViewControllerRepresentable {
 }
 
 extension View {
-    public func onUIViewControllerResolution(
+    public func onAppKitOrUIKitViewControllerResolution(
         perform action: @escaping (UIViewController) -> ()
     ) -> some View {
         background(
-            UIViewControllerResolver(
+            AppKitOrUIKitViewControllerResolver(
                 onResolution: action,
                 onAppear: { _ in },
                 onDisappear: { _ in },
@@ -88,14 +88,14 @@ extension View {
     }
     
     @_disfavoredOverload
-    public func onUIViewControllerResolution(
+    public func onAppKitOrUIKitViewControllerResolution(
         perform resolutionAction: @escaping (UIViewController) -> (),
         onAppear: @escaping (UIViewController) -> () = { _ in },
         onDisappear: @escaping (UIViewController) -> () = { _ in },
         onDeresolution deresolutionAction: @escaping (UIViewController) -> () = { _ in }
     ) -> some View {
         background(
-            UIViewControllerResolver(
+            AppKitOrUIKitViewControllerResolver(
                 onResolution: resolutionAction,
                 onAppear: onAppear,
                 onDisappear: onDisappear,
@@ -104,5 +104,32 @@ extension View {
         )
     }
 }
+
+#if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+
+extension View {
+    public func onUIViewControllerResolution(
+        perform action: @escaping (UIViewController) -> ()
+    ) -> some View {
+        onAppKitOrUIKitViewControllerResolution(perform: action)
+    }
+    
+    @_disfavoredOverload
+    public func onUIViewControllerResolution(
+        perform resolutionAction: @escaping (UIViewController) -> (),
+        onAppear: @escaping (UIViewController) -> () = { _ in },
+        onDisappear: @escaping (UIViewController) -> () = { _ in },
+        onDeresolution deresolutionAction: @escaping (UIViewController) -> () = { _ in }
+    ) -> some View {
+        onAppKitOrUIKitViewControllerResolution(
+            perform: resolutionAction,
+            onAppear: onAppear,
+            onDisappear: onDisappear,
+            onDeresolution: deresolutionAction
+        )
+    }
+}
+
+#endif
 
 #endif

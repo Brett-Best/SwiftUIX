@@ -67,11 +67,12 @@ import SwiftUI
         self.viewController = viewController
     }
     
-    func setIsInPresentation(_ isActive: Bool) {
+    func setIsModalInPresentation(_ isActive: Bool) {
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         viewController.isModalInPresentation = isActive
         #elseif os(macOS)
-        fatalError("unimplemented")
+        viewController.view.window?.standardWindowButton(NSWindow.ButtonType.closeButton)!.isHidden = isActive
+        viewController.view.window?.standardWindowButton(NSWindow.ButtonType.miniaturizeButton)!.isHidden = isActive
         #endif
     }
 }
@@ -86,7 +87,7 @@ extension CocoaPresentationCoordinator {
     }
 }
 
-// MARK: - Protocol Conformances -
+// MARK: - Conformances -
 
 extension CocoaPresentationCoordinator: DynamicViewPresenter {
     public var presenter: DynamicViewPresenter? {
@@ -101,9 +102,17 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
         presentation?.content._opaque_getViewName()
     }
     
+    public func setPresentation(_ presentation: AnyModalPresentation?) {
+        if let presentation = presentation {
+            present(presentation)
+        } else {
+            dismiss()
+        }
+    }
+    
     public func present(_ modal: AnyModalPresentation) {
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
-        if let viewController = viewController.presentedViewController as? CocoaPresentationHostingController, viewController.modalViewPresentationStyle == modal.content.presentationStyle {
+        if let viewController = viewController.presentedViewController as? CocoaPresentationHostingController, viewController.modalViewPresentationStyle == modal.content.modalPresentationStyle {
             viewController.presentation = modal
             return
         }
@@ -145,7 +154,7 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
                 self.objectWillChange.send()
                 
                 viewController.dismiss(animated: animation != nil) {
-                    presentation?.resetBinding()
+                    presentation?.reset()
                     
                     attemptToFulfill(.success(true))
                 }
@@ -153,7 +162,7 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
                 self.objectWillChange.send()
                 
                 navigationController.popToViewController(viewController, animated: animation != nil) {
-                    presentation?.resetBinding()
+                    presentation?.reset()
                     
                     attemptToFulfill(.success(true))
                 }
@@ -181,7 +190,7 @@ extension CocoaPresentationCoordinator: UIAdaptivePresentationControllerDelegate
         #endif
         
         if let presentation = presentation {
-            return .init(presentation.content.presentationStyle)
+            return .init(presentation.content.modalPresentationStyle)
         } else {
             return .automatic
         }
@@ -196,8 +205,8 @@ extension CocoaPresentationCoordinator: UIAdaptivePresentationControllerDelegate
     }
     
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation.resetBinding()
-
+        (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation.reset()
+        
         presentationController.presentingViewController.presentationCoordinator.objectWillChange.send()
     }
     
@@ -211,7 +220,29 @@ extension CocoaPresentationCoordinator: UIAdaptivePresentationControllerDelegate
 #if os(iOS) && !os(tvOS)
 
 extension CocoaPresentationCoordinator: UIPopoverPresentationControllerDelegate {
-    
+    public func popoverPresentationController(
+        _ popoverPresentationController: UIPopoverPresentationController,
+        willRepositionPopoverTo rect: UnsafeMutablePointer<CGRect>,
+        in view: AutoreleasingUnsafeMutablePointer<UIView>
+    ) {
+        guard let presentedViewController = popoverPresentationController.presentedViewController as? CocoaPresentationHostingController else {
+            return
+        }
+        
+        guard let bounds = presentedViewController.presentation.content.popoverAttachmentAnchorBounds else {
+            return
+        }
+        
+        guard let presentingViewController = popoverPresentationController.presentedViewController.presentingViewController else {
+            return
+        }
+        
+        guard let coordinateSpace = presentingViewController.view.window?.coordinateSpace else {
+            return
+        }
+        
+        rect.pointee = presentingViewController.view.convert(bounds, from: coordinateSpace)
+    }
 }
 
 #endif
@@ -231,16 +262,13 @@ struct _UseCocoaPresentationCoordinator: ViewModifier {
                 }
             })
             .onPreferenceChange(AnyModalPresentation.PreferenceKey.self) { presentation in
-                if let presentation = presentation {
-                    self.coordinator?.present(presentation)
-                } else {
-                    self.coordinator?.dismiss()
-                }
+                self.coordinator?.setPresentation(presentation)
+            }
+            .onPreferenceChange(IsModalInPresentation.self) {
+                self.coordinator?.setIsModalInPresentation($0)
             }
             .preference(key: AnyModalPresentation.PreferenceKey.self, value: nil)
-            .onPreferenceChange(IsModalInPresentation.self) {
-                self.coordinator?.setIsInPresentation($0)
-            }
+            .preference(key: IsModalInPresentation.self, value: false)
     }
 }
 

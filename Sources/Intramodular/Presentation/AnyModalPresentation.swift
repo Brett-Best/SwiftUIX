@@ -9,63 +9,49 @@ import SwiftUI
 public struct AnyModalPresentation: Identifiable {
     public typealias PreferenceKey = TakeLastPreferenceKey<AnyModalPresentation>
     
-    public let id: UUID
+    public var id: AnyHashable
+    public var content: AnyPresentationView
+    public var onDismiss: () -> Void
+    public var reset: () -> Void
     
-    public private(set) var content: AnyPresentationView
-    
-    @usableFromInline
-    let resetBinding: () -> ()
-    
-    @usableFromInline
-    init(_ content: AnyPresentationView) {
-        self.id = UUID()
-        self.content = content
-        self.resetBinding = { }
-    }
-    
-    @usableFromInline
-    init<V: View>(
-        id: UUID = UUID(),
-        content: V,
-        contentName: ViewName? = nil,
-        presentationStyle: ModalPresentationStyle? = nil,
-        onPresent: (() -> Void)? = nil,
-        onDismiss: (() -> Void)? = nil,
-        resetBinding: @escaping () -> () = { }
+    init(
+        id: AnyHashable = UUID(),
+        content: AnyPresentationView,
+        onDismiss: @escaping () -> Void = { },
+        reset: @escaping () -> Void = { }
     ) {
         self.id = id
-        self.content = AnyPresentationView(content)
-        self.resetBinding = resetBinding
-        
-        if let presentationStyle = presentationStyle {
-            self.content = self.content.modalPresentationStyle(presentationStyle)
-        }
-        
-        if let name = contentName {
-            self.content = self.content.name(name)
-        }
+        self.content = content
+        self.onDismiss = onDismiss
+        self.reset = reset
     }
 }
 
 extension AnyModalPresentation {
-    public func mergeEnvironmentBuilder(_ builder: EnvironmentBuilder) -> Self {
+    public var presentationStyle: ModalPresentationStyle {
+        content.modalPresentationStyle
+    }
+    
+    public var popoverAttachmentAnchorBounds: CGRect? {
+        content.popoverAttachmentAnchorBounds
+    }
+    
+    public func popoverAttachmentAnchorBounds(_ bounds: CGRect?) -> Self {
         var result = self
         
-        result.mergeEnvironmentBuilderInPlace(builder)
+        result.content = result.content.popoverAttachmentAnchorBounds(bounds)
         
         return result
     }
-    
-    public mutating func mergeEnvironmentBuilderInPlace(_ builder: EnvironmentBuilder) {
-        content.mergeEnvironmentBuilderInPlace(builder)
-    }
 }
 
-// MARK: - Protocol Conformances -
+// MARK: - Conformances -
 
 extension AnyModalPresentation: Equatable {
     public static func == (lhs: AnyModalPresentation, rhs: AnyModalPresentation) -> Bool {
-        lhs.id == rhs.id
+        true
+            && lhs.id == rhs.id
+            && lhs.popoverAttachmentAnchorBounds == rhs.popoverAttachmentAnchorBounds
     }
 }
 
@@ -74,7 +60,7 @@ extension AnyModalPresentation: Equatable {
 extension View {
     public func isModalInPresentation(_ value: Bool) -> some View {
         #if os(iOS) || targetEnvironment(macCatalyst)
-        return onUIViewControllerResolution {
+        return onAppKitOrUIKitViewControllerResolution {
             $0.isModalInPresentation = value
         }
         .preference(key: IsModalInPresentation.self, value: value)

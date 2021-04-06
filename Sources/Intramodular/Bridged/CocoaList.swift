@@ -123,7 +123,7 @@ extension CocoaList where Data: RangeReplaceableCollection, SectionModel == KeyP
     ) where Items.Element == ItemType {
         var data = Data.init()
         
-        data.append(.init(model: KeyPathHashIdentifiableValue(value: 0, keyPath: \.self), items: items))
+        data.append(.init(KeyPathHashIdentifiableValue(value: 0, keyPath: \.self), items: items))
         
         self.init(
             data,
@@ -140,7 +140,7 @@ extension CocoaList where Data: RangeReplaceableCollection, SectionModel == KeyP
         
         let content = content()
         
-        data.append(.init(model: KeyPathHashIdentifiableValue(value: 0, keyPath: \.self), items: content.data))
+        data.append(.init(KeyPathHashIdentifiableValue(value: 0, keyPath: \.self), items: content.data))
         
         self.init(
             data,
@@ -157,7 +157,7 @@ extension CocoaList where Data == Array<ListSection<SectionModel, ItemType>>, Se
         @ViewBuilder rowContent: @escaping (ItemType) -> RowContent
     ) where Items.Element == ItemType {
         self.init(
-            [.init(model: KeyPathHashIdentifiableValue(value: 0, keyPath: \.self), items: items)],
+            [.init(KeyPathHashIdentifiableValue(value: 0, keyPath: \.self), items: items)],
             sectionHeader: Never.produce,
             sectionFooter: Never.produce,
             rowContent: rowContent
@@ -198,46 +198,22 @@ extension CocoaList {
     }
     
     @inlinable
-    public func contentInset(_ contentInset: UIEdgeInsets) -> Self {
+    public func contentInsets(_ contentInset: EdgeInsets) -> Self {
         then({ $0.scrollViewConfiguration.contentInset = contentInset })
     }
     
+    @_disfavoredOverload
     @inlinable
-    public func contentInset(_ insets: EdgeInsets) -> Self {
-        contentInset(
-            .init(
-                top: insets.top,
-                left: insets.leading,
-                bottom: insets.bottom,
-                right: insets.trailing
-            )
-        )
+    public func contentInsets(_ insets: UIEdgeInsets) -> Self {
+        contentInsets(EdgeInsets(insets))
     }
     
     @inlinable
-    public func contentInset(
+    public func contentInsets(
         _ edges: Edge.Set = .all,
         _ length: CGFloat = 0
     ) -> Self {
-        var insets = self.scrollViewConfiguration.contentInset
-        
-        if edges.contains(.top) {
-            insets.top += length
-        }
-        
-        if edges.contains(.leading) {
-            insets.left += length
-        }
-        
-        if edges.contains(.bottom) {
-            insets.bottom += length
-        }
-        
-        if edges.contains(.trailing) {
-            insets.right += length
-        }
-        
-        return self.contentInset(insets)
+        contentInsets(EdgeInsets(edges, length))
     }
     
     @inlinable

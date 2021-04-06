@@ -24,6 +24,7 @@ public struct SearchBar: DefaultTextInputType {
     private var placeholder: String?
     
     #if os(iOS) || targetEnvironment(macCatalyst)
+    private var uiFont: UIFont?
     private var searchBarStyle: UISearchBar.Style = .minimal
     #endif
     
@@ -81,6 +82,10 @@ extension SearchBar: UIViewRepresentable {
     
     public func updateUIView(_ uiView: UIViewType, context: Context) {
         context.coordinator.base = self
+        
+        if let font = uiFont ?? context.environment.font?.toUIFont() {
+            uiView._retrieveTextField()?.font = font
+        }
         
         uiView.placeholder = placeholder
         uiView.searchBarStyle = searchBarStyle
@@ -232,6 +237,10 @@ extension SearchBar {
     #endif
     
     #if os(iOS) || targetEnvironment(macCatalyst)
+    public func font(_ font: UIFont) -> Self {
+        then({ $0.uiFont = font })
+    }
+    
     public func searchBarStyle(_ searchBarStyle: UISearchBar.Style) -> Self {
         then({ $0.searchBarStyle = searchBarStyle })
     }

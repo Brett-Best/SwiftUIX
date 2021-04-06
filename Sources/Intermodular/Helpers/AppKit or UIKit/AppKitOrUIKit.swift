@@ -18,11 +18,13 @@ public typealias AppKitOrUIKitButton = UIButton
 public typealias AppKitOrUIKitColor = UIColor
 public typealias AppKitOrUIKitControl = UIControl
 public typealias AppKitOrUIKitControlEvent = UIControl.Event
+public typealias AppKitOrUIKitEdgeInsets = UIEdgeInsets
 public typealias AppKitOrUIKitEvent = UIEvent
 public typealias AppKitOrUIKitFont = UIFont
 public typealias AppKitOrUIKitHostingController<Content: View> = UIHostingController<Content>
 public typealias AppKitOrUIKitHostingView<Content: View> = UIHostingView<Content>
 public typealias AppKitOrUIKitImage = UIImage
+public typealias AppKitOrUIKitInsets = UIEdgeInsets
 public typealias AppKitOrUIKitLabel = UILabel
 public typealias AppKitOrUIKitLayoutAxis = NSLayoutConstraint.Axis
 public typealias AppKitOrUIKitLayoutGuide = UILayoutGuide
@@ -36,6 +38,10 @@ public typealias AppKitOrUIKitTextView = UITextView
 public typealias AppKitOrUIKitView = UIView
 public typealias AppKitOrUIKitViewController = UIViewController
 public typealias AppKitOrUIKitWindow = UIWindow
+
+extension UIEdgeInsets {
+    var edgeInsets: EdgeInsets { .init(top: top, leading: left, bottom: bottom, trailing: right) }
+}
 
 #endif
 
@@ -56,6 +62,7 @@ public typealias AppKitOrUIKitFont = NSFont
 public typealias AppKitOrUIKitHostingController<Content: View> = NSHostingController<Content>
 public typealias AppKitOrUIKitHostingView<Content: View> = NSHostingView<Content>
 public typealias AppKitOrUIKitImage = NSImage
+public typealias AppKitOrUIKitInsets = NSSize
 public typealias AppKitOrUIKitLabel = NSLabel
 public typealias AppKitOrUIKitLayoutAxis = NSUserInterfaceLayoutOrientation
 public typealias AppKitOrUIKitLayoutGuide = NSLayoutGuide
@@ -79,6 +86,12 @@ extension NSView {
     
     @objc open func hitTest(_ point: CGPoint, with event: NSEvent?) -> NSView? {
         hitTest(point)
+    }
+}
+
+extension NSWindow {
+    public var isHidden: Bool {
+        !isVisible
     }
 }
 
@@ -153,25 +166,6 @@ extension EnvironmentValues {
     #endif
 }
 
-struct _ResolveAppKitOrUIKitViewController: ViewModifier {
-    @State var _appKitOrUIKitViewControllerBox = WeakBox<AppKitOrUIKitViewController>(nil)
-    
-    func body(content: Content) -> some View {
-        #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
-        return content
-            .environment(\._appKitOrUIKitViewControllerBox, _appKitOrUIKitViewControllerBox)
-            .environment(\.navigator, _appKitOrUIKitViewControllerBox.value?.navigationController)
-            .onUIViewControllerResolution { viewController in
-                if !(_appKitOrUIKitViewControllerBox.value === viewController) {
-                    _appKitOrUIKitViewControllerBox = .init(viewController)
-                }
-            }
-        #else
-        return content
-        #endif
-    }
-}
-
 public struct AppKitOrUIKitViewControllerAdaptor<AppKitOrUIKitViewControllerType: AppKitOrUIKitViewController>: AppKitOrUIKitViewControllerRepresentable {
     #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
     public typealias UIViewControllerType = AppKitOrUIKitViewControllerType
@@ -204,3 +198,31 @@ public struct AppKitOrUIKitViewControllerAdaptor<AppKitOrUIKitViewControllerType
 }
 
 #endif
+
+struct _ResolveAppKitOrUIKitViewController: ViewModifier {
+    #if os(iOS) || os(macOS) || os(tvOS) || targetEnvironment(macCatalyst)
+    @State var _appKitOrUIKitViewControllerBox = WeakBox<AppKitOrUIKitViewController>(nil)
+    @State var _presentationCoordinator = WeakBox<CocoaPresentationCoordinator>(nil)
+
+    func body(content: Content) -> some View {
+        #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+        return content
+            .environment(\._appKitOrUIKitViewControllerBox, _appKitOrUIKitViewControllerBox)
+            .environment(\.navigator, _appKitOrUIKitViewControllerBox.value?.navigationController)
+            .onAppKitOrUIKitViewControllerResolution { viewController in
+                if !(_appKitOrUIKitViewControllerBox.value === viewController) {
+                    _appKitOrUIKitViewControllerBox = .init(viewController)
+                    _presentationCoordinator = .init(viewController.presentationCoordinator)
+                }
+            }
+            .modifier(_UseCocoaPresentationCoordinator(coordinator: _presentationCoordinator.value))
+        #else
+        return content
+        #endif
+    }
+    #else
+    func body(content: Content) -> some View {
+        content
+    }
+    #endif
+}

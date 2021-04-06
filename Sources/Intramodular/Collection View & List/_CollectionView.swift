@@ -27,6 +27,25 @@ struct _CollectionView<
         RowContent
     >
     
+    public struct _CollectionViewLayout: CollectionViewLayout, Hashable {
+        weak var collectionViewController: NSObject?
+        
+        let base: CollectionViewLayout
+        
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(collectionViewController?.hashValue)
+            hasher.combine(base.hashValue)
+        }
+        
+        public func _toUICollectionViewLayout() -> UICollectionViewLayout {
+            base._toUICollectionViewLayout()
+        }
+        
+        public static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.hashValue == rhs.hashValue
+        }
+    }
+    
     struct DataSourceConfiguration {
         let identifierMap: UIViewControllerType.DataSource.IdentifierMap
     }
@@ -34,7 +53,31 @@ struct _CollectionView<
     struct ViewProvider {
         let sectionHeader: (SectionType) -> SectionHeader
         let sectionFooter: (SectionType) -> SectionFooter
-        let rowContent: (ItemType) -> RowContent
+        
+        let rowContent: (SectionType, ItemType) -> RowContent
+        
+        func sectionContent(for kind: String) -> ((SectionType) -> AnyView)? {
+            switch kind {
+                case UICollectionView.elementKindSectionHeader: do {
+                    if SectionHeader.self != EmptyView.self && SectionHeader.self != Never.self {
+                        return { sectionHeader($0).eraseToAnyView() }
+                    } else {
+                        return nil
+                    }
+                }
+                case UICollectionView.elementKindSectionFooter:
+                    if SectionFooter.self != EmptyView.self && SectionFooter.self != Never.self {
+                        return { sectionFooter($0).eraseToAnyView() }
+                    } else {
+                        return nil
+                    }
+                default: do {
+                    assertionFailure()
+                    
+                    return nil
+                }
+            }
+        }
     }
     
     typealias Configuration = _CollectionViewConfiguration
@@ -54,11 +97,24 @@ struct _CollectionView<
     }
     
     public func updateUIViewController(_ uiViewController: UIViewControllerType, context: Context) {
-        if let _collectionViewProxy = context.environment._collectionViewProxy {
-            if _collectionViewProxy.wrappedValue.hostingCollectionViewController !== uiViewController {
-                DispatchQueue.main.async {
-                    _collectionViewProxy.wrappedValue.hostingCollectionViewController = uiViewController
+        populateCollectionViewProxy: do {
+            if let _collectionViewProxy = context.environment._collectionViewProxy {
+                if _collectionViewProxy.wrappedValue.hostingCollectionViewController !== uiViewController {
+                    DispatchQueue.main.async {
+                        _collectionViewProxy.wrappedValue.hostingCollectionViewController = uiViewController
+                    }
                 }
+            }
+        }
+        
+        updateCollectionViewLayout: do {
+            let collectionViewLayout = _CollectionViewLayout(
+                collectionViewController: uiViewController,
+                base: context.environment.collectionViewLayout
+            )
+            
+            if uiViewController.collectionViewLayout.hashValue != collectionViewLayout.hashValue {
+                uiViewController.collectionViewLayout = collectionViewLayout
             }
         }
 
@@ -68,10 +124,8 @@ struct _CollectionView<
         uiViewController._scrollViewConfiguration = context.environment._scrollViewConfiguration
         uiViewController.configuration = context.environment._collectionViewConfiguration
         uiViewController.viewProvider = viewProvider
-                
-        if uiViewController.collectionViewLayout.hashValue != context.environment.collectionViewLayout.hashValue {
-            uiViewController.collectionViewLayout = context.environment.collectionViewLayout
-        }
+        
+        uiViewController.refreshVisibleCellsAndSupplementaryViews()
     }
 }
 
@@ -87,13 +141,34 @@ extension _CollectionView {
         SectionType: Hashable,
         ItemType: Hashable,
         Data.Element == ListSection<SectionType, ItemType>,
-        SectionIdentifierType == SectionType, ItemIdentifierType == ItemType
+        SectionIdentifierType == SectionType,
+        ItemIdentifierType == ItemType
     {
         self.init(
             .static(.init(data)),
             sectionHeader: sectionHeader,
             sectionFooter: sectionFooter,
-            rowContent: rowContent
+            rowContent: { rowContent($1) }
+        )
+    }
+    
+    init<Data: RandomAccessCollection>(
+        _ data: Data,
+        sectionHeader: @escaping (SectionType) -> SectionHeader,
+        sectionFooter: @escaping (SectionType) -> SectionFooter,
+        rowContent: @escaping (SectionType, ItemType) -> RowContent
+    ) where
+        SectionType: Hashable,
+        ItemType: Hashable,
+        Data.Element == ListSection<SectionType, ItemType>,
+        SectionIdentifierType == SectionType,
+        ItemIdentifierType == ItemType
+    {
+        self.init(
+            .static(.init(data)),
+            sectionHeader: sectionHeader,
+            sectionFooter: sectionFooter,
+            rowContent: { rowContent($0, $1) }
         )
     }
 }
@@ -108,7 +183,7 @@ extension _CollectionView where
         _ dataSource: UIViewControllerType.DataSource,
         sectionHeader: @escaping (SectionType) -> SectionHeader,
         sectionFooter: @escaping (SectionType) -> SectionFooter,
-        rowContent: @escaping (ItemType) -> RowContent
+        rowContent: @escaping (SectionType, ItemType) -> RowContent
     ) {
         self.dataSource = dataSource
         self.dataSourceConfiguration = .init(

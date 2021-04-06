@@ -55,7 +55,18 @@ extension View {
         _ fill: BackgroundFill,
         alignment: Alignment = .center
     ) -> some View {
-        background(fill, alignment: alignment)
+        background(fill.edgesIgnoringSafeArea(.all), alignment: alignment)
+    }
+}
+
+extension View {
+    @_disfavoredOverload
+    @inlinable
+    public func overlay<Overlay: View>(
+        alignment: Alignment = .center,
+        @ViewBuilder _ overlay: () -> Overlay
+    ) -> some View {
+        self.overlay(overlay(), alignment: alignment)
     }
 }
 
