@@ -25,13 +25,13 @@ public struct PresentationLink<Destination: View, Label: View>: PresentationLink
     let label: Label
     
     @State var name = ViewName()
-    @State var id = UUID()
+    @State var id: AnyHashable = UUID()
     @State var _internal_isPresented: Bool = false
     
     var isPresented: Binding<Bool> {
         _isPresented ?? $_internal_isPresented
     }
-
+    
     var presentation: AnyModalPresentation {
         let content = AnyPresentationView(
             _destination
@@ -46,28 +46,45 @@ public struct PresentationLink<Destination: View, Label: View>: PresentationLink
             id: id,
             content: content,
             onDismiss: _onDismiss,
-            reset: { self.isPresented.wrappedValue = false }
+            reset: {
+                self.id = UUID()
+                self.isPresented.wrappedValue = false
+            }
         )
     }
     
     public var body: some View {
-        IntrinsicGeometryReader { proxy in
+        PassthroughView {
             if let presenter = presenter,
                userInterfaceIdiom != .mac,
                presentation.presentationStyle != .automatic
             {
                 #if os(iOS) || targetEnvironment(macCatalyst)
-                if presentation.presentationStyle == .popover {
-                    Button(
-                        action: { isPresented.wrappedValue = true },
-                        label: label
-                    )
-                    .preference(
-                        key: AnyModalPresentation.PreferenceKey.self,
-                        value: isPresented.wrappedValue ? presentation.popoverAttachmentAnchorBounds(proxy.frame(in: .global)) : nil
-                    )
+                if case .popover(_, _) = presentation.presentationStyle {
+                    IntrinsicGeometryReader { proxy in
+                        if let presenter = presenter as? CocoaPresentationCoordinator {
+                            Button(
+                                action: { isPresented.wrappedValue.toggle() },
+                                label: label
+                            )
+                            .preference(
+                                key: AnyModalPresentation.PreferenceKey.self,
+                                value: isPresented.wrappedValue ? presentation.popoverAttachmentAnchorBounds(proxy.frame(in: .global)) : nil
+                            )
+                            .modifier(_UseCocoaPresentationCoordinator(presentationCoordinatorBox: .init(presenter)))
+                        } else {
+                            Button(
+                                action: { isPresented.wrappedValue.toggle() },
+                                label: label
+                            )
+                            .preference(
+                                key: AnyModalPresentation.PreferenceKey.self,
+                                value: isPresented.wrappedValue ? presentation.popoverAttachmentAnchorBounds(proxy.frame(in: .global)) : nil
+                            )
+                        }
+                    }
                 } else {
-                    Button(action: { presenter.present(presentation.popoverAttachmentAnchorBounds(proxy.frame(in: .global))) }, label: label)
+                    Button(action: { presenter.present(presentation) }, label: label)
                 }
                 #else
                 Button(action: { presenter.present(presentation) }, label: label)
@@ -91,7 +108,7 @@ public struct PresentationLink<Destination: View, Label: View>: PresentationLink
                     CocoaHostingView {
                         ZeroSizeView().preference(
                             key: AnyModalPresentation.PreferenceKey.self,
-                            value: isPresented.wrappedValue ? presentation.popoverAttachmentAnchorBounds(proxy.frame(in: .global)) : nil
+                            value: isPresented.wrappedValue ? presentation : nil
                         )
                     }
                 )
@@ -144,7 +161,7 @@ extension PresentationLink {
         
         self.label = label()
     }
-
+    
     public init(
         destination: Destination,
         isPresented: Binding<Bool>,

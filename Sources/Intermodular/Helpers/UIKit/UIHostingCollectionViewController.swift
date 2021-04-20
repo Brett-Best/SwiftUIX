@@ -94,8 +94,8 @@ public final class UIHostingCollectionViewController<
         }
     }
     
-    private lazy var _animateDataSourceDifferences: Bool = true
-    private lazy var _internalDiffableDataSource: UICollectionViewDiffableDataSource<SectionIdentifierType, ItemIdentifierType>? = nil
+    lazy var _animateDataSourceDifferences: Bool = true
+    lazy var _internalDiffableDataSource: UICollectionViewDiffableDataSource<SectionIdentifierType, ItemIdentifierType>? = nil
     
     lazy var cache = Cache(parent: self)
     
@@ -144,13 +144,14 @@ public final class UIHostingCollectionViewController<
         
         super.init(nibName: nil, bundle: nil)
     }
-        
+    
     public override func viewDidLoad() {
         super.viewDidLoad()
         
         collectionView.backgroundColor = .clear
         collectionView.backgroundView = UIView()
         collectionView.backgroundView?.backgroundColor = .clear
+        collectionView.contentInsetAdjustmentBehavior = .never
         
         collectionView.register(
             UICollectionViewCellType.self,
@@ -183,33 +184,19 @@ public final class UIHostingCollectionViewController<
                 return cell
             }
             
-            let itemIdentifier = self.dataSourceConfiguration.identifierMap[item]
-            let sectionIdentifier = self.dataSourceConfiguration.identifierMap[section]
-            
-            let cellID = UICollectionViewCellType.Configuration.ID(
-                item: itemIdentifier,
-                section: sectionIdentifier
-            )
-            
-            let cellContent: CellContent
-            
-            if let (_cellID, _cellContent) = self.cache.indexPathToViewMap[indexPath], _cellID == cellID {
-                cellContent = _cellContent
-            } else {
-                cellContent = self.viewProvider.rowContent(section, item)
-                
-                self.cache.indexPathToViewMap[indexPath] = (cellID, cellContent)
-            }
-            
             cell.configuration = .init(
                 item: item,
                 section: section,
-                itemIdentifier: itemIdentifier,
-                sectionIdentifier: sectionIdentifier,
+                itemIdentifier: self.dataSourceConfiguration.identifierMap[item],
+                sectionIdentifier: self.dataSourceConfiguration.identifierMap[section],
                 indexPath: indexPath,
-                content: cellContent,
+                viewProvider: self.viewProvider,
                 maximumSize: self.maximumCellSize
             )
+            
+            self.cache.preconfigure(cell: cell)
+            
+            cell.update()
             
             return cell
         }
@@ -417,7 +404,22 @@ extension UIHostingCollectionViewController {
             itemsForBeginning session: UIDragSession,
             at indexPath: IndexPath
         ) -> [UIDragItem] {
-            [UIDragItem(itemProvider: NSItemProvider())]
+            if let dragItems = parent.cache.preferences(itemAt: indexPath).wrappedValue?.dragItems {
+                return dragItems.map(UIDragItem.init)
+            }
+            
+            return [UIDragItem(itemProvider: NSItemProvider())]
+        }
+        
+        func collectionView(_ collectionView: UICollectionView, dragPreviewParametersForItemAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+            .init()
+        }
+        
+        func collectionView(
+            _ collectionView: UICollectionView,
+            dragSessionAllowsMoveOperation session: UIDragSession
+        ) -> Bool {
+            true
         }
         
         // MARK: - UICollectionViewDropDelegate -
@@ -451,14 +453,14 @@ extension UIHostingCollectionViewController {
             withDestinationIndexPath destinationIndexPath: IndexPath?
         ) -> UICollectionViewDropProposal {
             if session.localDragSession == nil {
-                return .init(operation: .forbidden, intent: .unspecified)
+                return .init(operation: .cancel, intent: .unspecified)
             }
             
             if collectionView.hasActiveDrag {
                 return .init(operation: .move, intent: .insertAtDestinationIndexPath)
             }
             
-            return .init(operation: .forbidden)
+            return .init(operation: .cancel)
         }
         
         @objc
@@ -538,103 +540,6 @@ extension UIHostingCollectionViewController {
         }
         
         return result ?? (_internalDiffableDataSource?.collectionView(collectionView, cellForItemAt: indexPath) as? UICollectionViewCellType)
-    }
-    
-    private func updateDataSource(
-        oldValue: DataSource?,
-        newValue: DataSource?
-    ) {
-        if configuration.disableAnimatingDifferences {
-            _animateDataSourceDifferences = false
-        }
-        
-        defer {
-            _animateDataSourceDifferences = true
-        }
-        
-        guard let _internalDataSource = _internalDiffableDataSource else {
-            return
-        }
-        
-        if case .diffableDataSource(let binding) = newValue {
-            DispatchQueue.main.async {
-                if binding.wrappedValue !== _internalDataSource {
-                    binding.wrappedValue = _internalDataSource
-                }
-            }
-            
-            return
-        }
-        
-        guard let oldValue = oldValue else {
-            guard case let .static(newData) = newValue, !newData.isEmpty else {
-                return
-            }
-            
-            var snapshot = _internalDataSource.snapshot()
-            
-            snapshot.deleteAllItemsIfNecessary()
-            snapshot.appendSections(newData.map({ dataSourceConfiguration.identifierMap[$0.model] }))
-            
-            for element in newData {
-                snapshot.appendItems(
-                    element.items.map({ dataSourceConfiguration.identifierMap[$0] }),
-                    toSection: dataSourceConfiguration.identifierMap[element.model]
-                )
-            }
-            
-            _internalDataSource.apply(snapshot, animatingDifferences: _animateDataSourceDifferences)
-            
-            return
-        }
-        
-        guard case let (.static(data), .static(oldData)) = (newValue, oldValue) else {
-            var snapshot = _internalDataSource.snapshot()
-            
-            snapshot.deleteAllItems()
-            
-            _internalDataSource.apply(snapshot, animatingDifferences: _animateDataSourceDifferences)
-            
-            return
-        }
-        
-        let oldSections = oldData.map({ $0.model })
-        let sections = data.map({ $0.model })
-        
-        var snapshot = _internalDataSource.snapshot()
-        
-        let sectionDifference = sections.lazy
-            .map({ self.dataSourceConfiguration.identifierMap[$0] })
-            .difference(
-                from: oldSections.map({ self.dataSourceConfiguration.identifierMap[$0] })
-            )
-        
-        snapshot.applySectionDifference(sectionDifference)
-        
-        var hasDataSourceChanged: Bool = false
-        
-        if !sectionDifference.isEmpty {
-            hasDataSourceChanged = true
-        }
-        
-        for sectionData in data {
-            let section = sectionData.model
-            let sectionItems = sectionData.items
-            let oldSectionData = oldData.first(where: { self.dataSourceConfiguration.identifierMap[$0.model] == self.dataSourceConfiguration.identifierMap[sectionData.model] })
-            let oldSectionItems = oldSectionData?.items ?? AnyRandomAccessCollection([])
-            
-            let difference = sectionItems.lazy.map({ self.dataSourceConfiguration.identifierMap[$0] }).difference(from: oldSectionItems.lazy.map({ self.dataSourceConfiguration.identifierMap[$0] }))
-            
-            if !difference.isEmpty {
-                snapshot.applyItemDifference(difference, inSection: self.dataSourceConfiguration.identifierMap[section])
-                
-                hasDataSourceChanged = true
-            }
-        }
-        
-        if hasDataSourceChanged {
-            _internalDataSource.apply(snapshot, animatingDifferences: _animateDataSourceDifferences)
-        }
     }
 }
 
@@ -820,91 +725,6 @@ fileprivate extension Dictionary where Key == Int, Value == [Int: CGSize] {
             self[indexPath.section, default: [:]][indexPath.row]
         } set {
             self[indexPath.section, default: [:]][indexPath.row] = newValue
-        }
-    }
-}
-
-fileprivate extension CollectionDifference where ChangeElement: Equatable {
-    var singleItemReorder: (source: Int, target: Int)? {
-        guard count == 2 else {
-            return nil
-        }
-        
-        guard case .remove(let sourceOffset, let removedElement, _) = first(where: {
-            if case .remove = $0 {
-                return true
-            } else {
-                return false
-            }
-        }) else {
-            return nil
-        }
-        
-        guard case .insert(var targetOffset, let insertedElement, _) = first(where: {
-            if case .insert = $0 {
-                return true
-            } else {
-                return false
-            }
-        }) else {
-            return nil
-        }
-        
-        guard insertedElement == removedElement else {
-            return nil
-        }
-        
-        if sourceOffset < targetOffset {
-            targetOffset += 1
-        }
-        
-        return (sourceOffset, targetOffset)
-    }
-}
-
-fileprivate extension NSDiffableDataSourceSnapshot {
-    mutating func deleteAllItemsIfNecessary() {
-        if itemIdentifiers.count > 0 || sectionIdentifiers.count > 0 {
-            deleteAllItems()
-        }
-    }
-    
-    mutating func applySectionDifference(_ difference: CollectionDifference<SectionIdentifierType>) {
-        difference.forEach({ applySectionChanges($0) })
-    }
-    
-    mutating func applySectionChanges(_ change: CollectionDifference<SectionIdentifierType>.Change) {
-        switch change {
-            case .insert(offset: sectionIdentifiers.count, let element, _):
-                appendSections([element])
-            case .insert(let offset, let element, _):
-                insertSections([element], beforeSection: sectionIdentifiers[offset])
-            case .remove(_, let element, _):
-                deleteSections([element])
-        }
-    }
-    
-    mutating func applyItemDifference(
-        _ difference: CollectionDifference<ItemIdentifierType>, inSection section: SectionIdentifierType
-    ) {
-        difference.forEach({ applyItemChange($0, inSection: section) })
-    }
-    
-    mutating func applyItemChange(_ change: CollectionDifference<ItemIdentifierType>.Change, inSection section: SectionIdentifierType) {
-        switch change {
-            case .insert(itemIdentifiers(inSection: section).count, let element, _):
-                appendItems([element], toSection: section)
-            case .insert(let offset, let element, _): do {
-                let items = itemIdentifiers(inSection: section)
-                
-                if offset < items.count {
-                    insertItems([element], beforeItem: items[offset])
-                } else {
-                    appendItems([element])
-                }
-            }
-            case .remove(_, let element, _):
-                deleteItems([element])
         }
     }
 }

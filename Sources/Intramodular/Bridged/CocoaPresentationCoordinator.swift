@@ -11,9 +11,13 @@ import SwiftUI
 @objc public class CocoaPresentationCoordinator: NSObject, ObservableObject {
     public var environmentBuilder = EnvironmentBuilder()
     
-    private let presentation: AnyModalPresentation?
+    private var presentation: AnyModalPresentation?
     
     public var presentingCoordinator: CocoaPresentationCoordinator? {
+        guard let viewController = viewController else {
+            return nil
+        }
+        
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         if let presentingViewController = viewController.presentingViewController {
             return presentingViewController.presentationCoordinator
@@ -32,6 +36,10 @@ import SwiftUI
     }
     
     public var presentedCoordinator: CocoaPresentationCoordinator? {
+        guard let viewController = viewController else {
+            return nil
+        }
+        
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         if let presentedViewController = viewController.presentedViewController {
             return presentedViewController.presentationCoordinator
@@ -49,7 +57,7 @@ import SwiftUI
         #endif
     }
     
-    fileprivate weak var viewController: AppKitOrUIKitViewController!
+    fileprivate weak var viewController: AppKitOrUIKitViewController?
     
     public init(
         presentation: AnyModalPresentation? = nil,
@@ -68,6 +76,10 @@ import SwiftUI
     }
     
     func setIsModalInPresentation(_ isActive: Bool) {
+        guard let viewController = viewController else {
+            return
+        }
+        
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         viewController.isModalInPresentation = isActive
         #elseif os(macOS)
@@ -105,15 +117,19 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
     public func setPresentation(_ presentation: AnyModalPresentation?) {
         if let presentation = presentation {
             present(presentation)
-        } else {
+        } else if self.presentation != nil {
             dismiss()
         }
     }
     
     public func present(_ modal: AnyModalPresentation) {
+        guard let viewController = viewController else {
+            return
+        }
+        
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
-        if let viewController = viewController.presentedViewController as? CocoaPresentationHostingController, viewController.modalViewPresentationStyle == modal.content.modalPresentationStyle {
-            viewController.presentation = modal
+        if let presentedViewController = viewController.presentedViewController as? CocoaPresentationHostingController, presentedViewController.modalViewPresentationStyle == modal.content.modalPresentationStyle {
+            presentedViewController.presentation = modal
             return
         }
         
@@ -128,6 +144,8 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
             animated: true
         ) {
             viewControllerToBePresented.presentationController?.delegate = self
+            
+            self.presentation = modal
             
             self.objectWillChange.send()
         }
@@ -175,7 +193,11 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
     
     @discardableResult
     public func dismissSelf(withAnimation animation: Animation?) -> Future<Bool, Never> {
-        viewController.dismissSelf(withAnimation: animation)
+        guard let viewController = viewController else {
+            return .init({ $0(.success(false)) })
+        }
+        
+        return viewController.dismissSelf(withAnimation: animation)
     }
 }
 
@@ -205,6 +227,8 @@ extension CocoaPresentationCoordinator: UIAdaptivePresentationControllerDelegate
     }
     
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        presentation = nil
+        
         (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation.reset()
         
         presentationController.presentingViewController.presentationCoordinator.objectWillChange.send()
@@ -241,6 +265,8 @@ extension CocoaPresentationCoordinator: UIPopoverPresentationControllerDelegate 
             return
         }
         
+        presentedViewController.invalidatePreferredContentSize()
+        
         rect.pointee = presentingViewController.view.convert(bounds, from: coordinateSpace)
     }
 }
@@ -248,12 +274,16 @@ extension CocoaPresentationCoordinator: UIPopoverPresentationControllerDelegate 
 #endif
 
 struct _UseCocoaPresentationCoordinator: ViewModifier {
-    let coordinator: CocoaPresentationCoordinator?
+    @ObservedObject var presentationCoordinatorBox: ObservableWeakReferenceBox<CocoaPresentationCoordinator>
+    
+    var coordinator: CocoaPresentationCoordinator? {
+        presentationCoordinatorBox.value
+    }
     
     func body(content: Content) -> some View {
         content
             .environment(\.presenter, coordinator)
-            .environment(\.presentationManager, CocoaPresentationMode(coordinator: coordinator))
+            .environment(\.presentationManager, CocoaPresentationMode(presentationCoordinatorBox: presentationCoordinatorBox))
             .onPreferenceChange(_NamedViewDescription.PreferenceKey.self, perform: {
                 if let parent = self.coordinator?.viewController as? _opaque_CocoaController {
                     for description in $0 {
@@ -264,11 +294,11 @@ struct _UseCocoaPresentationCoordinator: ViewModifier {
             .onPreferenceChange(AnyModalPresentation.PreferenceKey.self) { presentation in
                 self.coordinator?.setPresentation(presentation)
             }
-            .onPreferenceChange(IsModalInPresentation.self) {
+            .onPreferenceChange(_DismissDisabled.self) {
                 self.coordinator?.setIsModalInPresentation($0)
             }
             .preference(key: AnyModalPresentation.PreferenceKey.self, value: nil)
-            .preference(key: IsModalInPresentation.self, value: false)
+            .preference(key: _DismissDisabled.self, value: false)
     }
 }
 

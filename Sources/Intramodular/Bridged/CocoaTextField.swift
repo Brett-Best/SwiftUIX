@@ -9,10 +9,9 @@ import SwiftUI
 
 /// A control that displays an editable text interface.
 public struct CocoaTextField<Label: View>: CocoaView {
-    
     typealias Rect = ((_ bounds: CGRect, _ original: CGRect) -> CGRect)
     
-    public struct CharactersChange {
+    public struct CharactersChange: Hashable {
         public let range: NSRange
         public let replacement: String
     }
@@ -39,6 +38,7 @@ public struct CocoaTextField<Label: View>: CocoaView {
         var inputView: AnyView?
         var kerning: CGFloat?
         var keyboardType: UIKeyboardType = .default
+        var smartQuotesType: UITextSmartQuotesType = .default
         var placeholder: String?
         var returnKeyType: UIReturnKeyType?
         var textColor: UIColor?
@@ -221,6 +221,7 @@ fileprivate struct _CocoaTextField<Label: View>: UIViewRepresentable {
         
         uiView.isUserInteractionEnabled = context.environment.isEnabled
         uiView.keyboardType = configuration.keyboardType
+        uiView.smartQuotesType = configuration.smartQuotesType
         
         if let placeholder = configuration.placeholder {
             uiView.attributedPlaceholder = NSAttributedString(
@@ -429,6 +430,10 @@ extension CocoaTextField {
         then({ $0.configuration.keyboardType = keyboardType })
     }
     
+    public func smartQuotesType(_ smartQuotesType: UITextSmartQuotesType) -> Self {
+        then({ $0.configuration.smartQuotesType = smartQuotesType })
+    }
+    
     public func placeholder(_ placeholder: String) -> Self {
         then({ $0.configuration.placeholder = placeholder })
     }
@@ -446,7 +451,7 @@ extension CocoaTextField {
         then({ $0.configuration.returnKeyType = returnKeyType })
     }
     
-    @available(iOS, deprecated: 13.0, renamed: "foregroundColor(_:)")
+    @available(*, deprecated, renamed: "foregroundColor")
     public func textColor(_ foregroundColor: Color) -> Self {
         then({ $0.configuration.textColor = foregroundColor.toUIColor() })
     }

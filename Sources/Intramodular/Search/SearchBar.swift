@@ -28,7 +28,7 @@ public struct SearchBar: DefaultTextInputType {
     private var searchBarStyle: UISearchBar.Style = .minimal
     #endif
     
-    private var showsCancelButton: Bool = false
+    private var showsCancelButton: Bool?
     private var onCancel: () -> Void = { }
     
     var customAppKitOrUIKitClass: AppKitOrUIKitSearchBar.Type?
@@ -83,31 +83,51 @@ extension SearchBar: UIViewRepresentable {
     public func updateUIView(_ uiView: UIViewType, context: Context) {
         context.coordinator.base = self
         
-        if let font = uiFont ?? context.environment.font?.toUIFont() {
+        _updateUISearchBar(uiView, environment: context.environment)
+    }
+    
+    func _updateUISearchBar(
+        _ uiView: UIViewType,
+        environment: EnvironmentValues
+    ) {
+        if let font = uiFont ?? environment.font?.toUIFont() {
             uiView._retrieveTextField()?.font = font
         }
         
-        uiView.placeholder = placeholder
+        if let placeholder = placeholder {
+            uiView.placeholder = placeholder
+        }
+        
         uiView.searchBarStyle = searchBarStyle
         
         if uiView.text != text {
             uiView.text = text
         }
         
-        uiView.tintColor = context.environment.tintColor?.toUIColor()
+        uiView.tintColor = environment.tintColor?.toUIColor()
         
-        uiView.setShowsCancelButton(showsCancelButton, animated: true)
+        if let showsCancelButton = showsCancelButton {
+            if uiView.showsCancelButton != showsCancelButton {
+                uiView.setShowsCancelButton(showsCancelButton, animated: true)
+            }
+        }
         
         if let returnKeyType = returnKeyType {
             uiView.returnKeyType = returnKeyType
+        } else {
+            uiView.returnKeyType = .default
         }
         
         if let keyboardType = keyboardType {
             uiView.keyboardType = keyboardType
+        } else {
+            uiView.keyboardType = .default
         }
         
         if let enablesReturnKeyAutomatically = enablesReturnKeyAutomatically {
             uiView.enablesReturnKeyAutomatically = enablesReturnKeyAutomatically
+        } else {
+            uiView.enablesReturnKeyAutomatically = false
         }
     }
     
@@ -145,6 +165,12 @@ extension SearchBar: UIViewRepresentable {
     
     public func makeCoordinator() -> Coordinator {
         return Coordinator(base: self)
+    }
+}
+
+extension UISearchBar {
+    func _configurate(with searchBar: SearchBar) {
+        
     }
 }
 

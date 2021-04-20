@@ -49,14 +49,20 @@ open class UIHostingView<Content: View>: UIView {
         withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
         verticalFittingPriority: UILayoutPriority
     ) -> CGSize {
-        rootViewHostingController.sizeThatFits(in: targetSize)
+        rootViewHostingController.sizeThatFits(
+            .init(
+                targetSize: .init(targetSize),
+                horizontalFittingPriority: horizontalFittingPriority,
+                verticalFittingPriority: verticalFittingPriority
+            )
+        )
     }
     
     override open func sizeToFit() {
         if let superview = superview {
             frame.size = rootViewHostingController.sizeThatFits(in: superview.frame.size)
         } else {
-            super.sizeToFit()
+            frame.size = rootViewHostingController.sizeThatFits(AppKitOrUIKitLayoutSizeProposal())
         }
     }
 }

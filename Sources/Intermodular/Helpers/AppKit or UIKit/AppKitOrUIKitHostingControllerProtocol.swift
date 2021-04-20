@@ -62,6 +62,9 @@ extension AppKitOrUIKitHostingControllerProtocol {
             case (1..., .zero): do {
                 result = sizeThatFits(in: CGSize(width: fittingSize.width, height: AppKitOrUIKitView.layoutFittingExpandedSize.width))
             }
+            case (.zero, .zero): do {
+                result = sizeThatFits(in: AppKitOrUIKitView.layoutFittingExpandedSize)
+            }
             default:
                 break
         }
@@ -74,6 +77,12 @@ extension AppKitOrUIKitHostingControllerProtocol {
                 ? targetSize.height
                 : result.height
         )
+        
+        if result.width.isZero && !result.height.isZero {
+            result = .init(width: 1, height: result.height)
+        } else if !result.width.isZero && result.height.isZero {
+            result = .init(width: result.width, height: 1)
+        }
         
         return result.clamping(to: sizeProposal.maximumSize)
     }
