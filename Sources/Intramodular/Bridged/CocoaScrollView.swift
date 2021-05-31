@@ -24,7 +24,8 @@ public struct CocoaScrollView<Content: View>: UIViewRepresentable  {
         self.content = content()
         
         configuration.axes = axes
-        configuration.showsIndicators = showsIndicators
+        configuration.showsVerticalScrollIndicator = showsIndicators
+        configuration.showsHorizontalScrollIndicator = showsIndicators
     }
     
     public func makeUIView(context: Context) -> UIViewType {
@@ -34,7 +35,11 @@ public struct CocoaScrollView<Content: View>: UIViewRepresentable  {
     public func updateUIView(_ uiView: UIViewType, context: Context) {
         uiView.isUserInteractionEnabled = context.environment.isEnabled
         
-        uiView.configuration = configuration.updating(from: context.environment)
+        var configuration = self.configuration
+        
+        configuration.update(from: context.environment)
+        
+        uiView.configuration = configuration
         uiView.rootView = content
     }
 }
@@ -48,6 +53,14 @@ extension CocoaScrollView {
     
     public func alwaysBounceHorizontal(_ alwaysBounceHorizontal: Bool) -> Self {
         then({ $0.configuration.alwaysBounceHorizontal = alwaysBounceHorizontal })
+    }
+    
+    /// Adds a condition whether for whether the collection view disables bouncing when scrolling reaches the end of the content
+    public func scrollBounceDisabled(_ disabled: Bool) -> Self {
+        then {
+            $0.configuration.alwaysBounceHorizontal = !disabled
+            $0.configuration.alwaysBounceVertical = !disabled
+        }
     }
     
     public func isPagingEnabled(_ enabled: Bool) -> Self {

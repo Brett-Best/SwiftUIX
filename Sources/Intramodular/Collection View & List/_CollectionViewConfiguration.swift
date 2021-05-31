@@ -7,12 +7,20 @@ import SwiftUI
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
 
+@usableFromInline
 struct _CollectionViewConfiguration {
+    @usableFromInline
     var allowsMultipleSelection: Bool = false
+    @usableFromInline
     var disableAnimatingDifferences: Bool = false
     #if !os(tvOS)
+    @usableFromInline
     var reorderingCadence: UICollectionView.ReorderingCadence = .immediate
     #endif
+    @usableFromInline
+    var isDragActive: Binding<Bool>? = nil
+    @usableFromInline
+    var _ignorePreferredCellLayoutAttributes: Bool = false
 }
 
 // MARK: - Auxiliary Implementation -

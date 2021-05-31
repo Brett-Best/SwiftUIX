@@ -7,26 +7,7 @@ import SwiftUI
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
 
-protocol _opaque_UIHostingCollectionViewController: UIViewController {
-    func scrollToTop(anchor: UnitPoint?, animated: Bool)
-    
-    func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint?)
-    func scrollTo<ID: Hashable>(itemAfter id: ID, anchor: UnitPoint?)
-    func scrollTo<ID: Hashable>(itemBefore id: ID, anchor: UnitPoint?)
-    
-    func select<ID: Hashable>(_ id: ID, anchor: UnitPoint?)
-    func select<ID: Hashable>(itemAfter id: ID, anchor: UnitPoint?)
-    func select<ID: Hashable>(itemBefore id: ID, anchor: UnitPoint?)
-    
-    func selectNextItem(anchor: UnitPoint?)
-    func selectPreviousItem(anchor: UnitPoint?)
-    
-    func deselect<ID: Hashable>(_ id: ID)
-    
-    func selection<ID: Hashable>(for id: ID) -> Binding<Bool>
-}
-
-public final class UIHostingCollectionViewController<
+final class UIHostingCollectionViewController<
     SectionType,
     SectionIdentifierType: Hashable,
     ItemType,
@@ -34,7 +15,7 @@ public final class UIHostingCollectionViewController<
     SectionHeaderContent: View,
     SectionFooterContent: View,
     CellContent: View
->: UIViewController, _opaque_UIHostingCollectionViewController, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
+>: UIViewController, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
     typealias _SwiftUIType = _CollectionView<SectionType, SectionIdentifierType, ItemType, ItemIdentifierType, SectionHeaderContent, SectionFooterContent, CellContent>
     typealias UICollectionViewCellType = UIHostingCollectionViewCell<
         SectionType,
@@ -71,6 +52,8 @@ public final class UIHostingCollectionViewController<
         }
     }
     
+    var isInitialContentAlignmentSet = false
+    
     var _dynamicViewContentTraitValues = _DynamicViewContentTraitValues() {
         didSet {
             #if !os(tvOS)
@@ -100,13 +83,17 @@ public final class UIHostingCollectionViewController<
     lazy var cache = Cache(parent: self)
     
     #if !os(tvOS)
-    fileprivate lazy var dragAndDropDelegate = DragAndDropDelegate(parent: self)
+    lazy var dragAndDropDelegate = DragAndDropDelegate(parent: self)
     #endif
     
-    fileprivate lazy var collectionView: UICollectionView = {
+    lazy var collectionView: UICollectionView = {
         let collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: collectionViewLayout._toUICollectionViewLayout())
         
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collectionView.backgroundColor = .clear
+        collectionView.backgroundView = UIView()
+        collectionView.backgroundView?.backgroundColor = .clear
+        collectionView.isPrefetchingEnabled = false
         
         view.addSubview(collectionView)
         
@@ -119,25 +106,6 @@ public final class UIHostingCollectionViewController<
         
         return collectionView
     }()
-    
-    var maximumCellSize: OptionalDimensions {
-        var result = OptionalDimensions(
-            width: max(floor(collectionView.contentSize.width - 0.001), 0),
-            height: max(floor(collectionView.contentSize.height - 0.001), 0)
-        )
-        
-        guard result.width != 0 || result.height != 0 else {
-            return nil
-        }
-
-        if result.width == 0 {
-            result.width = AppKitOrUIKitView.layoutFittingExpandedSize.width
-        } else if result.height == 0 {
-            result.height = AppKitOrUIKitView.layoutFittingExpandedSize.height
-        }
-        
-        return result
-    }
     
     init(
         dataSourceConfiguration: _SwiftUIType.DataSourceConfiguration,
@@ -153,11 +121,6 @@ public final class UIHostingCollectionViewController<
     
     public override func viewDidLoad() {
         super.viewDidLoad()
-        
-        collectionView.backgroundColor = .clear
-        collectionView.backgroundView = UIView()
-        collectionView.backgroundView?.backgroundColor = .clear
-        collectionView.contentInsetAdjustmentBehavior = .never
         
         collectionView.register(
             UICollectionViewCellType.self,
@@ -197,7 +160,7 @@ public final class UIHostingCollectionViewController<
                 sectionIdentifier: self.dataSourceConfiguration.identifierMap[section],
                 indexPath: indexPath,
                 viewProvider: self.viewProvider,
-                maximumSize: self.maximumCellSize
+                maximumSize: self.maximumCollectionViewCellSize
             )
             
             self.cache.preconfigure(cell: cell)
@@ -236,10 +199,12 @@ public final class UIHostingCollectionViewController<
                 sectionIdentifier: self.dataSourceConfiguration.identifierMap[section],
                 indexPath: indexPath,
                 viewProvider: self.viewProvider,
-                maximumSize: self.maximumCellSize
+                maximumSize: self.maximumCollectionViewCellSize
             )
             
-            view.supplementaryViewWillDisplay(inParent: self)
+            self.cache.preconfigure(supplementaryView: view)
+            
+            view.update()
             
             return view
         }
@@ -249,6 +214,28 @@ public final class UIHostingCollectionViewController<
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    override public func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+    }
+    
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+    }
+    
+    override public func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        
+        if self._scrollViewConfiguration.initialContentAlignment == .bottom {
+            if !self.isInitialContentAlignmentSet {
+                self.scrollToLast(animated: false)
+                
+                self.isInitialContentAlignmentSet = true
+            }
+        }
+        
+        // preferredContentSize = collectionView.collectionViewLayout.collectionViewContentSize
     }
     
     override public func viewSafeAreaInsetsDidChange()  {
@@ -277,8 +264,16 @@ public final class UIHostingCollectionViewController<
         (cell as? UICollectionViewCellType)?.cellWillDisplay(inParent: self)
     }
     
+    public func collectionView(_ collectionView: UICollectionView, willDisplaySupplementaryView view: UICollectionReusableView, forElementKind elementKind: String, at indexPath: IndexPath) {
+        (view as? UICollectionViewSupplementaryViewType)?.supplementaryViewWillDisplay(inParent: self)
+    }
+    
     public func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? UICollectionViewCellType)?.cellDidEndDisplaying()
+    }
+    
+    public func collectionView(_ collectionView: UICollectionView, didEndDisplayingSupplementaryView view: UICollectionReusableView, forElementOfKind elementKind: String, at indexPath: IndexPath) {
+        (view as? UICollectionViewSupplementaryViewType)?.supplementaryViewDidEndDisplaying()
     }
     
     public func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
@@ -325,11 +320,15 @@ public final class UIHostingCollectionViewController<
     
     public func collectionView(_ collectionView: UICollectionView, shouldUpdateFocusIn context: UICollectionViewFocusUpdateContext) -> Bool {
         if let previousCell = context.previouslyFocusedView as? UICollectionViewCellType {
-            previousCell.isFocused = false
+            if previousCell.isFocused {
+                previousCell.isFocused = false
+            }
         }
         
         if let nextCell = context.nextFocusedView as? UICollectionViewCellType {
-            nextCell.isFocused = true
+            if nextCell.isFocused {
+                nextCell.isFocused = true
+            }
         }
         
         return true
@@ -392,111 +391,52 @@ public final class UIHostingCollectionViewController<
             kind: UICollectionView.elementKindSectionFooter
         )
     }
-}
-
-extension UIHostingCollectionViewController {
-    #if !os(tvOS)
-    class DragAndDropDelegate: NSObject, UICollectionViewDragDelegate, UICollectionViewDropDelegate {
-        unowned let parent: UIHostingCollectionViewController
-        
-        init(parent: UIHostingCollectionViewController) {
-            self.parent = parent
+    
+    // MARK: UIScrollViewDelegate
+    
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if let onOffsetChange = _scrollViewConfiguration.onOffsetChange {
+            onOffsetChange(scrollView.contentOffset(forContentType: AnyView.self))
         }
         
-        // MARK: - UICollectionViewDragDelegate -
-        
-        func collectionView(
-            _ collectionView: UICollectionView,
-            itemsForBeginning session: UIDragSession,
-            at indexPath: IndexPath
-        ) -> [UIDragItem] {
-            if let dragItems = parent.cache.preferences(itemAt: indexPath).wrappedValue?.dragItems {
-                return dragItems.map(UIDragItem.init)
-            }
-            
-            return [UIDragItem(itemProvider: NSItemProvider())]
-        }
-        
-        func collectionView(_ collectionView: UICollectionView, dragPreviewParametersForItemAt indexPath: IndexPath) -> UIDragPreviewParameters? {
-            .init()
-        }
-        
-        func collectionView(
-            _ collectionView: UICollectionView,
-            dragSessionAllowsMoveOperation session: UIDragSession
-        ) -> Bool {
-            true
-        }
-        
-        // MARK: - UICollectionViewDropDelegate -
-        
-        @objc
-        func collectionView(
-            _ collectionView: UICollectionView,
-            performDropWith coordinator: UICollectionViewDropCoordinator
-        ) {
-            if let onMove = parent._dynamicViewContentTraitValues.onMove {
-                if let item = coordinator.items.first, let sourceIndexPath = item.sourceIndexPath, var destinationIndexPath = coordinator.destinationIndexPath {
-                    parent.cache.invalidateCachedContentSize(forIndexPath: sourceIndexPath)
-                    parent.cache.invalidateCachedContentSize(forIndexPath: destinationIndexPath)
-                    
-                    if sourceIndexPath.item < destinationIndexPath.item {
-                        destinationIndexPath.item += 1
-                    }
-                    
-                    onMove(
-                        IndexSet([sourceIndexPath.item]),
-                        destinationIndexPath.item
-                    )
-                }
-            }
-        }
-        
-        @objc
-        func collectionView(
-            _ collectionView: UICollectionView,
-            dropSessionDidUpdate session: UIDropSession,
-            withDestinationIndexPath destinationIndexPath: IndexPath?
-        ) -> UICollectionViewDropProposal {
-            if session.localDragSession == nil {
-                return .init(operation: .cancel, intent: .unspecified)
-            }
-            
-            if collectionView.hasActiveDrag {
-                return .init(operation: .move, intent: .insertAtDestinationIndexPath)
-            }
-            
-            return .init(operation: .cancel)
-        }
-        
-        @objc
-        func collectionView(
-            _ collectionView: UICollectionView,
-            dropSessionDidEnd session: UIDropSession
-        ) {
-            
+        if let contentOffset = _scrollViewConfiguration.contentOffset {
+            contentOffset.wrappedValue = collectionView.contentOffset
         }
     }
-    #endif
 }
 
 extension UIHostingCollectionViewController {
     func refreshVisibleCellsAndSupplementaryViews() {
-        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).forEach {
-            guard let view = $0 as? UICollectionViewSupplementaryViewType else {
+        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).forEach { view in
+            guard let view = view as? UICollectionViewSupplementaryViewType else {
                 return
             }
             
+            view.cache.content = nil
             view.configuration?.viewProvider = viewProvider
+            
             view.update(forced: true)
         }
         
-        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionFooter).forEach {
-            guard let view = $0 as? UICollectionViewSupplementaryViewType else {
+        collectionView.visibleCells.forEach { cell in
+            guard let cell = cell as? UICollectionViewCellType else {
                 return
             }
             
+            cell.cache.content = nil
+            cell.configuration?.viewProvider = viewProvider
+            
+            cell.update(forced: false)
+        }
+        
+        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionFooter).forEach { view in
+            guard let view = view as? UICollectionViewSupplementaryViewType else {
+                return
+            }
+            
+            view.cache.content = nil
             view.configuration?.viewProvider = viewProvider
+            
             view.update(forced: true)
         }
     }
@@ -549,180 +489,6 @@ extension UIHostingCollectionViewController {
     }
 }
 
-// MARK: - Extensions -
-
-extension UIHostingCollectionViewController {
-    public func scrollToTop(anchor: UnitPoint? = nil, animated: Bool = true) {
-        collectionView.setContentOffset(.zero, animated: animated)
-    }
-    
-    public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {
-        guard let indexPath = cache.firstIndexPath(for: id) else {
-            return
-        }
-        
-        collectionView.scrollToItem(
-            at: indexPath,
-            at: .init(anchor),
-            animated: true
-        )
-    }
-    
-    public func scrollTo<ID: Hashable>(itemBefore id: ID, anchor: UnitPoint? = nil) {
-        guard let indexPath = cache.firstIndexPath(for: id).map(collectionView.indexPath(before:)), collectionView.contains(indexPath) else {
-            return
-        }
-        
-        collectionView.scrollToItem(
-            at: indexPath,
-            at: .init(anchor),
-            animated: true
-        )
-    }
-    
-    public func scrollTo<ID: Hashable>(itemAfter id: ID, anchor: UnitPoint? = nil) {
-        guard let indexPath = cache.firstIndexPath(for: id).map(collectionView.indexPath(after:)), collectionView.contains(indexPath) else {
-            return
-        }
-        
-        collectionView.scrollToItem(
-            at: indexPath,
-            at: .init(anchor),
-            animated: true
-        )
-    }
-    
-    public func select<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {
-        guard let indexPath = indexPath(for: id) else {
-            return
-        }
-        
-        collectionView.selectItem(
-            at: indexPath,
-            animated: true,
-            scrollPosition: .init(anchor)
-        )
-    }
-    
-    public func select<ID: Hashable>(itemBefore id: ID, anchor: UnitPoint? = nil) {
-        guard let indexPath = cache.firstIndexPath(for: id).map(collectionView.indexPath(before:)), collectionView.contains(indexPath) else {
-            return
-        }
-        
-        collectionView.selectItem(
-            at: indexPath,
-            animated: true,
-            scrollPosition: .init(anchor)
-        )
-    }
-    
-    public func select<ID: Hashable>(itemAfter id: ID, anchor: UnitPoint? = nil) {
-        guard let indexPath = cache.firstIndexPath(for: id).map(collectionView.indexPath(after:)), collectionView.contains(indexPath) else {
-            return
-        }
-        
-        collectionView.selectItem(
-            at: indexPath,
-            animated: true,
-            scrollPosition: .init(anchor)
-        )
-    }
-    
-    public func selectNextItem(anchor: UnitPoint?) {
-        guard !configuration.allowsMultipleSelection else {
-            assertionFailure("selectNextItem(anchor:) is unavailable when multiple selection is allowed.")
-            
-            return
-        }
-        
-        guard let indexPathForSelectedItem = collectionView.indexPathsForSelectedItems?.first else {
-            if let indexPath = collectionView.indexPathsForVisibleItems.sorted().first {
-                collectionView.selectItem(
-                    at: indexPath,
-                    animated: true,
-                    scrollPosition: .init(anchor)
-                )
-            }
-            
-            return
-        }
-        
-        let indexPath = collectionView.indexPath(after: indexPathForSelectedItem)
-        
-        guard collectionView.contains(indexPath) else {
-            return collectionView.deselectItem(at: indexPathForSelectedItem, animated: true)
-        }
-        
-        collectionView.selectItem(
-            at: indexPath,
-            animated: true,
-            scrollPosition: .init(anchor)
-        )
-    }
-    
-    public func selectPreviousItem(anchor: UnitPoint?) {
-        guard !configuration.allowsMultipleSelection else {
-            assertionFailure("selectPreviousItem(anchor:) is unavailable when multiple selection is allowed.")
-            
-            return
-        }
-        
-        guard let indexPathForSelectedItem = collectionView.indexPathsForSelectedItems?.first else {
-            if let indexPath = collectionView.indexPathsForVisibleItems.sorted().last {
-                collectionView.selectItem(
-                    at: indexPath,
-                    animated: true,
-                    scrollPosition: .init(anchor)
-                )
-            }
-            
-            return
-        }
-        
-        let indexPath = collectionView.indexPath(before: indexPathForSelectedItem)
-        
-        guard collectionView.contains(indexPath) else {
-            return collectionView.deselectItem(at: indexPathForSelectedItem, animated: true)
-        }
-        
-        collectionView.selectItem(
-            at: indexPath,
-            animated: true,
-            scrollPosition: .init(anchor)
-        )
-    }
-    
-    public func deselect<ID: Hashable>(_ id: ID) {
-        guard let indexPath = indexPath(for: id) else {
-            return
-        }
-        
-        collectionView.deselectItem(
-            at: indexPath,
-            animated: true
-        )
-    }
-    
-    private func indexPath<ID: Hashable>(for id: ID) -> IndexPath? {
-        cache.firstIndexPath(for: id)
-    }
-    
-    public func selection<ID: Hashable>(for id: ID) -> Binding<Bool> {
-        let indexPath = cache.firstIndexPath(for: id)
-        
-        return .init(
-            get: { indexPath.flatMap({ [weak self] in self?.collectionView.cellForItem(at: $0)?.isSelected }) ?? false },
-            set: { [weak self] newValue in
-                guard let indexPath = indexPath else {
-                    return
-                }
-                
-                self?.collectionView.deselectItem(at: indexPath, animated: true)
-            }
-        )
-    }
-}
-
 // MARK: - Auxiliary Implementation -
 
 fileprivate extension Dictionary where Key == Int, Value == [Int: CGSize] {
@@ -731,54 +497,6 @@ fileprivate extension Dictionary where Key == Int, Value == [Int: CGSize] {
             self[indexPath.section, default: [:]][indexPath.row]
         } set {
             self[indexPath.section, default: [:]][indexPath.row] = newValue
-        }
-    }
-}
-
-fileprivate extension UICollectionView {
-    func contains(_ indexPath: IndexPath) -> Bool {
-        guard indexPath.section < numberOfSections, indexPath.row >= 0, indexPath.row < numberOfItems(inSection: indexPath.section) else {
-            return false
-        }
-        
-        return true
-    }
-    
-    func indexPath(before indexPath: IndexPath) -> IndexPath {
-        IndexPath(row: indexPath.row - 1, section: indexPath.section)
-    }
-    
-    func indexPath(after indexPath: IndexPath) -> IndexPath {
-        IndexPath(row: indexPath.row + 1, section: indexPath.section)
-    }
-}
-
-fileprivate extension UICollectionView.ScrollPosition {
-    init(_ unitPoint: UnitPoint?) {
-        switch (unitPoint ?? .zero) {
-            case .zero:
-                self = [.left, .top]
-            case .center:
-                self = [.centeredHorizontally, .centeredVertically]
-            case .leading:
-                self = [.left, .centeredVertically]
-            case .trailing:
-                self = [.right, .centeredVertically]
-            case .top:
-                self = [.top, .centeredVertically]
-            case .bottom:
-                self = [.bottom, .centeredVertically]
-            case .topLeading:
-                self = [.left, .top]
-            case .topTrailing:
-                self = [.right, .top]
-            case .bottomLeading:
-                self = [.right, .bottom]
-            case .bottomTrailing:
-                self = [.right, .bottom]
-            default:
-                assertionFailure()
-                self = []
         }
     }
 }

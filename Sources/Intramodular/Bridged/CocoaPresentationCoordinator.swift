@@ -21,8 +21,6 @@ import SwiftUI
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         if let presentingViewController = viewController.presentingViewController {
             return presentingViewController.presentationCoordinator
-        } else if let navigationController = viewController.navigationController {
-            return navigationController.viewController(before: viewController)?.presentationCoordinator
         } else {
             return nil
         }
@@ -43,8 +41,6 @@ import SwiftUI
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         if let presentedViewController = viewController.presentedViewController {
             return presentedViewController.presentationCoordinator
-        } else if let navigationController = viewController.navigationController {
-            return navigationController.viewController(after: viewController)?.presentationCoordinator
         } else {
             return nil
         }
@@ -57,7 +53,7 @@ import SwiftUI
         #endif
     }
     
-    fileprivate weak var viewController: AppKitOrUIKitViewController?
+    public fileprivate(set) weak var viewController: AppKitOrUIKitViewController?
     
     public init(
         presentation: AnyModalPresentation? = nil,
@@ -92,9 +88,11 @@ import SwiftUI
 extension CocoaPresentationCoordinator {
     public override var description: String {
         if let name = presentationName {
-            return "Bridged Presentation Coordinator (" + name.description + ")"
+            return "Presentation Coordinator (" + name.description + ")"
+        } else if let viewController = viewController {
+            return "Presentation Coordinator for \(viewController)"
         } else {
-            return "Bridged Presentation Coordinator"
+            return "Presentation Coordinator"
         }
     }
 }
@@ -102,6 +100,10 @@ extension CocoaPresentationCoordinator {
 // MARK: - Conformances -
 
 extension CocoaPresentationCoordinator: DynamicViewPresenter {
+    public var _cocoaPresentationCoordinator: CocoaPresentationCoordinator {
+        self
+    }
+    
     public var presenter: DynamicViewPresenter? {
         presentingCoordinator
     }
@@ -114,17 +116,7 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
         presentation?.content._opaque_getViewName()
     }
     
-    public func setPresentation(_ presentation: AnyModalPresentation?) {
-        if let presentation = presentation {
-            present(presentation)
-        } else if self.presentedCoordinator?.presentation != nil {
-            dismiss()
-        }
-        
-        self.presentation = presentation
-    }
-    
-    public func present(_ modal: AnyModalPresentation) {
+    public func present(_ modal: AnyModalPresentation, completion: @escaping () -> Void) {
         guard let viewController = viewController else {
             return
         }
@@ -147,8 +139,8 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
         ) {
             viewControllerToBePresented.presentationController?.delegate = self
             viewControllerToBePresented.presentationCoordinator.presentation = modal
-            
-            self.objectWillChange.send()
+                        
+            completion()
         }
         #elseif os(macOS)
         fatalError("unimplemented")
@@ -170,18 +162,20 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
         #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
         return .init { attemptToFulfill in
             if viewController.presentedViewController != nil {
-                self.objectWillChange.send()
-                
                 viewController.dismiss(animated: animation != nil) {
-                    presentation?.reset()
+                    if let presentation = presentation {
+                        presentation.onDismiss()
+                        presentation.reset()
+                    }
                     
                     attemptToFulfill(.success(true))
                 }
             } else if let navigationController = viewController.navigationController {
-                self.objectWillChange.send()
-                
                 navigationController.popToViewController(viewController, animated: animation != nil) {
-                    presentation?.reset()
+                    if let presentation = presentation {
+                        presentation.onDismiss()
+                        presentation.reset()
+                    }
                     
                     attemptToFulfill(.success(true))
                 }
@@ -199,6 +193,14 @@ extension CocoaPresentationCoordinator: DynamicViewPresenter {
         }
         
         return viewController.dismissSelf(withAnimation: animation)
+    }
+    
+    func update(with value: AnyModalPresentation.PreferenceKeyValue) {
+        if let presentation = value.presentation {
+            present(presentation)
+        } else if let presentedCoordinator = presentedCoordinator, let presentation = presentedCoordinator.presentation, value.presentationID == presentation.id {
+            dismiss()
+        }
     }
 }
 
@@ -224,16 +226,21 @@ extension CocoaPresentationCoordinator: UIAdaptivePresentationControllerDelegate
     }
     
     public func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
-        objectWillChange.send()
+        if let presentation = (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation {
+            presentation.onDismiss()
+            presentation.reset()
+        }
     }
     
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         presentation = nil
         
         presentationController.presentingViewController.presentationCoordinator.presentation = nil
-        (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation.reset()
         
-        presentationController.presentingViewController.presentationCoordinator.objectWillChange.send()
+        if let presentation = (presentationController.presentedViewController as? CocoaPresentationHostingController)?.presentation {
+            presentation.onDismiss()
+            presentation.reset()
+        }
     }
     
     public func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
@@ -275,29 +282,45 @@ extension CocoaPresentationCoordinator: UIPopoverPresentationControllerDelegate 
 
 #endif
 
-struct _UseCocoaPresentationCoordinator: ViewModifier {
+struct _UseCocoaPresentationCoordinator: ViewModifier {    
     @ObservedObject var presentationCoordinatorBox: ObservableWeakReferenceBox<CocoaPresentationCoordinator>
     
-    var coordinator: CocoaPresentationCoordinator? {
+    private var coordinator: CocoaPresentationCoordinator? {
         presentationCoordinatorBox.value
+    }
+    
+    init(coordinator: ObservableWeakReferenceBox<CocoaPresentationCoordinator>) {
+        self._presentationCoordinatorBox = .init(initialValue: coordinator)
+    }
+    
+    init(coordinator: CocoaPresentationCoordinator?) {
+        self._presentationCoordinatorBox = .init(initialValue: .init(coordinator))
     }
     
     func body(content: Content) -> some View {
         content
-            .environment(\.presenter, coordinator)
-            .environment(\.presentationManager, CocoaPresentationMode(presentationCoordinatorBox: presentationCoordinatorBox))
+            .environment(\.presenter, coordinator?.presentingCoordinator)
+            .environment(\.presentationManager, CocoaPresentationMode(coordinator: presentationCoordinatorBox))
             .onPreferenceChange(_NamedViewDescription.PreferenceKey.self, perform: {
-                if let parent = self.coordinator?.viewController as? _opaque_CocoaController {
+                if let parent = coordinator?.viewController as? _opaque_CocoaController {
                     for description in $0 {
                         parent._setNamedViewDescription(description, for: description.name)
                     }
                 }
             })
-            .onPreferenceChange(AnyModalPresentation.PreferenceKey.self) { presentation in
-                self.coordinator?.setPresentation(presentation)
+            .onPreferenceChange(AnyModalPresentation.PreferenceKey.self) { value in
+                if let value = value {
+                    if let coordinator = coordinator {
+                        coordinator.update(with: value)
+                    } else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) {
+                            self.coordinator?.update(with: value)
+                        }
+                    }
+                }
             }
             .onPreferenceChange(_DismissDisabled.self) {
-                self.coordinator?.setIsModalInPresentation($0)
+                coordinator?.setIsModalInPresentation($0)
             }
             .preference(key: AnyModalPresentation.PreferenceKey.self, value: nil)
             .preference(key: _DismissDisabled.self, value: false)

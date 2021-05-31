@@ -5,19 +5,23 @@
 import Swift
 import SwiftUI
 
+@_frozen
 public struct OptionalDimensions: ExpressibleByNilLiteral, Hashable {
     public var width: CGFloat?
     public var height: CGFloat?
     
+    @inlinable
     public init(width: CGFloat?, height: CGFloat?) {
         self.width = width
         self.height = height
     }
     
+    @inlinable
     public init(_ size: CGSize) {
         self.init(width: size.width, height: size.height)
     }
     
+    @inlinable
     public init(_ size: CGSize?) {
         if let size = size {
             self.init(size)
@@ -26,16 +30,25 @@ public struct OptionalDimensions: ExpressibleByNilLiteral, Hashable {
         }
     }
     
+    @inlinable
     public init(nilLiteral: ()) {
         self.init(width: nil, height: nil)
     }
     
+    @inlinable
     public init() {
         
     }
 }
 
 extension OptionalDimensions {
+    public func rounded(_ rule: FloatingPointRoundingRule) -> Self {
+        .init(
+            width: width?.rounded(rule),
+            height: height?.rounded(rule)
+        )
+    }
+
     public mutating func clamp(to dimensions: OptionalDimensions) {
         if let maxWidth = dimensions.width {
             if let width = self.width {
@@ -147,17 +160,28 @@ extension CGSize {
         )
     }
     
-    public mutating func clamp(to dimensions: OptionalDimensions) {
-        if let maxWidth = dimensions.width {
+    public init?(_ dimensions: OptionalDimensions) {
+        guard let width = dimensions.width, let height = dimensions.height else {
+            return nil
+        }
+        
+        self.init(
+            width: width,
+            height: height
+        )
+    }
+    
+    public mutating func clamp(to dimensions: OptionalDimensions?) {
+        if let maxWidth = dimensions?.width {
             width = min(width, maxWidth)
         }
         
-        if let maxHeight = dimensions.height {
+        if let maxHeight = dimensions?.height {
             height = min(height, maxHeight)
         }
     }
     
-    public func clamping(to dimensions: OptionalDimensions) -> Self {
+    public func clamped(to dimensions: OptionalDimensions?) -> Self {
         var result = self
         
         result.clamp(to: dimensions)

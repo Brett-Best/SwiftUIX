@@ -166,8 +166,6 @@ extension _NavigationSearchBarConfigurator {
         
         public func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
             searchBarCoordinator.searchBarCancelButtonClicked(searchBar)
-            
-            searchController.isActive = false
         }
         
         public func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {

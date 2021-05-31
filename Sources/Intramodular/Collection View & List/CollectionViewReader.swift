@@ -8,82 +8,160 @@ import SwiftUI
 
 #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
 
-/// A proxy value allowing the collection views within a view hierarchy to be manipulated programmatically.
-public struct CollectionViewProxy {
-    private let _hostingCollectionViewController = WeakReferenceBox<AnyObject>(nil)
+protocol _CollectionViewProxyBase: AppKitOrUIKitViewController {
+    var collectionViewContentSize: CGSize { get }
+    var maximumCollectionViewCellSize: OptionalDimensions { get }
     
-    var hostingCollectionViewController: _opaque_UIHostingCollectionViewController? {
+    func invalidateLayout()
+    
+    func scrollToTop(anchor: UnitPoint?, animated: Bool)
+    func scrollToLast(anchor: UnitPoint?, animated: Bool)
+    
+    func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint?)
+    func scrollTo<ID: Hashable>(itemAfter id: ID, anchor: UnitPoint?)
+    func scrollTo<ID: Hashable>(itemBefore id: ID, anchor: UnitPoint?)
+    
+    func select<ID: Hashable>(_ id: ID, anchor: UnitPoint?)
+    func select<ID: Hashable>(itemAfter id: ID, anchor: UnitPoint?)
+    func select<ID: Hashable>(itemBefore id: ID, anchor: UnitPoint?)
+    
+    func selectNextItem(anchor: UnitPoint?)
+    func selectPreviousItem(anchor: UnitPoint?)
+    
+    func deselect<ID: Hashable>(_ id: ID)
+    
+    func selection<ID: Hashable>(for id: ID) -> Binding<Bool>
+    
+    func _snapshot() -> AppKitOrUIKitImage?
+}
+
+/// A proxy value allowing the collection views within a view hierarchy to be manipulated programmatically.
+public struct CollectionViewProxy: Hashable {
+    private let _baseBox: WeakReferenceBox<AnyObject>
+    
+    @ReferenceBox var onBaseChange: (() -> Void)? = nil
+    
+    var base: _CollectionViewProxyBase? {
         get {
-            _hostingCollectionViewController.value as? _opaque_UIHostingCollectionViewController
+            _baseBox.value as? _CollectionViewProxyBase
         } set {
-            _hostingCollectionViewController.value = newValue
+            _baseBox.value = newValue
+            
+            onBaseChange?()
         }
+    }
+    
+    public var contentSize: CGSize {
+        base?.collectionViewContentSize ?? .zero
+    }
+    
+    public var maximumCellSize: OptionalDimensions {
+        base?.maximumCollectionViewCellSize ?? nil
+    }
+    
+    init(_ base: _CollectionViewProxyBase? = nil) {
+        self._baseBox = .init(base)
+    }
+    
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(base?.hashValue)
+    }
+    
+    public func invalidateLayout() {
+        _assertResolutionOfCollectionView()
+        
+        base?.invalidateLayout()
     }
     
     public func scrollToTop(anchor: UnitPoint? = nil, animated: Bool = true) {
         _assertResolutionOfCollectionView()
-
-        hostingCollectionViewController?.scrollToTop(anchor: anchor, animated: animated)
+        
+        base?.scrollToTop(anchor: anchor, animated: animated)
+    }
+    
+    public func scrollToLast(anchor: UnitPoint? = nil, animated: Bool = true) {
+        _assertResolutionOfCollectionView()
+        
+        base?.scrollToLast(anchor: anchor, animated: animated)
     }
     
     public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {
         _assertResolutionOfCollectionView()
         
-        hostingCollectionViewController?.scrollTo(id, anchor: anchor)
+        base?.scrollTo(id, anchor: anchor)
     }
     
     public func selection<ID: Hashable>(for id: ID) -> Binding<Bool> {
         _assertResolutionOfCollectionView()
         
-        return hostingCollectionViewController?.selection(for: id) ?? .constant(false)
+        return base?.selection(for: id) ?? .constant(false)
     }
     
     public func select<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {
         _assertResolutionOfCollectionView()
         
-        hostingCollectionViewController?.select(id, anchor: anchor)
+        base?.select(id, anchor: anchor)
     }
     
     public func selectNextItem(anchor: UnitPoint? = nil) {
         _assertResolutionOfCollectionView()
         
-        hostingCollectionViewController?.selectNextItem(anchor: anchor)
+        base?.selectNextItem(anchor: anchor)
     }
     
     public func selectPreviousItem(anchor: UnitPoint? = nil) {
         _assertResolutionOfCollectionView()
         
-        hostingCollectionViewController?.selectPreviousItem(anchor: anchor)
+        base?.selectPreviousItem(anchor: anchor)
     }
     
     public func deselect<ID: Hashable>(_ id: ID) {
         _assertResolutionOfCollectionView()
         
-        hostingCollectionViewController?.deselect(id)
+        base?.deselect(id)
+    }
+    
+    public func _snapshot() -> AppKitOrUIKitImage? {
+        _assertResolutionOfCollectionView()
+        
+        return base?._snapshot()
     }
     
     private func _assertResolutionOfCollectionView() {
-        // assert(hostingCollectionViewController != nil, "CollectionViewProxy couldn't resolve a collection view")
+        // assert(base != nil, "CollectionViewProxy couldn't resolve a collection view")
+    }
+    
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.base === rhs.base
     }
 }
 
 /// A view whose child is defined as a function of a `CollectionViewProxy` targeting the collection views within the child.
 public struct CollectionViewReader<Content: View>: View {
+    @Environment(\._collectionViewProxy) var _environment_collectionViewProxy
+    
     public let content: (CollectionViewProxy) -> Content
     
-    @State public var _collectionViewProxy = CollectionViewProxy()
+    @State var _collectionViewProxy = CollectionViewProxy()
+    @State var invalidate: Bool = false
     
-    @inlinable
     public init(
         @ViewBuilder content: @escaping (CollectionViewProxy) -> Content
     ) {
         self.content = content
     }
     
-    @inlinable
     public var body: some View {
-        content(_collectionViewProxy)
+        content(_environment_collectionViewProxy?.wrappedValue ?? _collectionViewProxy)
             .environment(\._collectionViewProxy, $_collectionViewProxy)
+            .background {
+                PerformAction {
+                    _collectionViewProxy.onBaseChange = {
+                        invalidate.toggle()
+                    }
+                }
+                .id(invalidate)
+            }
     }
 }
 

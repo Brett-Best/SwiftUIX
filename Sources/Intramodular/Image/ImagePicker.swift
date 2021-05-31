@@ -4,21 +4,23 @@
 
 #if os(iOS) || targetEnvironment(macCatalyst)
 
+import SwiftUI
+
 /// A SwiftUI port of `UIImagePickerController`.
 public struct ImagePicker: UIViewControllerRepresentable {
     public typealias UIViewControllerType = UIImagePickerController
     
     @Environment(\.presentationManager) var presentationManager
     
-    @usableFromInline
-    @Binding var data: Data?
-    @usableFromInline
-    let encoding: Image.Encoding
-    @usableFromInline
+    let info: Binding<[UIImagePickerController.InfoKey: Any]?>?
+    let image: Binding<AppKitOrUIKitImage?>?
+    let data: Binding<Data?>?
+    
+    let encoding: Image.Encoding?
     var allowsEditing = false
-    @usableFromInline
+    var cameraDevice: UIImagePickerController.CameraDevice?
     var sourceType: UIImagePickerController.SourceType = .photoLibrary
-    @usableFromInline
+    var mediaTypes: [String]?
     var onCancel: (() -> Void)?
     
     public func makeUIViewController(context: Context) -> UIViewControllerType {
@@ -32,6 +34,14 @@ public struct ImagePicker: UIViewControllerRepresentable {
         
         uiViewController.allowsEditing = allowsEditing
         uiViewController.sourceType = sourceType
+        
+        if let mediaTypes = mediaTypes, uiViewController.mediaTypes != mediaTypes  {
+            uiViewController.mediaTypes = mediaTypes
+        }
+        
+        if uiViewController.sourceType == .camera {
+            uiViewController.cameraDevice = cameraDevice ?? .rear
+        }
     }
     
     public class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
@@ -47,7 +57,8 @@ public struct ImagePicker: UIViewControllerRepresentable {
         ) {
             let image = (info[UIImagePickerController.InfoKey.editedImage] as? UIImage) ?? (info[UIImagePickerController.InfoKey.originalImage] as? UIImage)
             
-            base.data = (image?._fixOrientation() ?? image)?.data(using: base.encoding)
+            base.image?.wrappedValue = image
+            base.data?.wrappedValue = (image?._fixOrientation() ?? image)?.data(using: base.encoding ?? .png)
             
             base.presentationManager.dismiss()
         }
@@ -70,38 +81,56 @@ public struct ImagePicker: UIViewControllerRepresentable {
 
 extension ImagePicker {
     public init(
-        data: Binding<Data?>,
-        encoding: Image.Encoding,
+        info: Binding<[UIImagePickerController.InfoKey: Any]?>,
         onCancel: (() -> Void)? = nil
     ) {
-        self._data = data
-        self.encoding = encoding
+        self.info = info
+        self.image = nil
+        self.data = nil
+        self.encoding = nil
         self.onCancel = onCancel
     }
     
     public init(
         image: Binding<AppKitOrUIKitImage?>,
-        encoding: Image.Encoding,
+        encoding: Image.Encoding? = nil,
         onCancel: (() -> Void)? = nil
     ) {
-        self._data = .init(
-            get: { image.wrappedValue.flatMap({ $0.data(using: encoding) }) },
-            set: { image.wrappedValue = $0.flatMap(AppKitOrUIKitImage.init(data:)) }
-        )
+        self.info = nil
+        self.image = image
+        self.data = nil
+        self.encoding = encoding
+        self.onCancel = onCancel
+    }
+    
+    public init(
+        data: Binding<Data?>,
+        encoding: Image.Encoding? = nil,
+        onCancel: (() -> Void)? = nil
+    ) {
+        self.info = nil
+        self.image = nil
+        self.data = data
         self.encoding = encoding
         self.onCancel = onCancel
     }
 }
 
 extension ImagePicker {
-    @inlinable
     public func allowsEditing(_ allowsEditing: Bool) -> Self {
         then({ $0.allowsEditing = allowsEditing })
     }
     
-    @inlinable
+    public func cameraDevice(_ cameraDevice: UIImagePickerController.CameraDevice?) -> Self {
+        then({ $0.cameraDevice = cameraDevice })
+    }
+    
     public func sourceType(_ sourceType: UIImagePickerController.SourceType) -> Self {
         then({ $0.sourceType = sourceType })
+    }
+    
+    public func mediaTypes(_ mediaTypes: [String]) -> Self {
+        then({ $0.mediaTypes = mediaTypes })
     }
 }
 

@@ -7,6 +7,8 @@ import SwiftUI
 
 /// A model suitable for representing sections of a list.
 public struct ListSection<SectionType, ItemType> {
+    public typealias Items = AnyRandomAccessCollection<ItemType>
+    
     private let _model: SectionType?
     
     public var model: SectionType {
@@ -106,6 +108,12 @@ extension ListSection: Equatable where SectionType: Equatable, ItemType: Equatab
         } else {
             return lhs.model == rhs.model && Array(lhs.items) == Array(rhs.items)
         }
+    }
+}
+
+extension ListSection: Comparable where SectionType: Comparable, ItemType: Equatable {
+    public static func < (lhs: ListSection, rhs: ListSection) -> Bool {
+        lhs.model < rhs.model
     }
 }
 

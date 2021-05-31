@@ -19,7 +19,7 @@ extension UIHostingCollectionViewCell {
         let itemIdentifier: ItemIdentifierType
         let sectionIdentifier: SectionIdentifierType
         let indexPath: IndexPath
-        let viewProvider: ParentViewControllerType._SwiftUIType.ViewProvider
+        var viewProvider: ParentViewControllerType._SwiftUIType.ViewProvider
         let maximumSize: OptionalDimensions?
         
         var id: ID {
@@ -33,7 +33,7 @@ extension UIHostingCollectionViewCell {
         let isSelected: Bool
     }
     
-    struct Preferences {
+    struct Preferences: Hashable {
         var _collectionOrListCellPreferences = _CollectionOrListCellPreferences()
         var _namedViewDescription: _NamedViewDescription?
         
@@ -43,6 +43,7 @@ extension UIHostingCollectionViewCell {
     
     struct Cache {
         var content: Content?
+        var contentSize: CGSize?
         var preferredContentSize: CGSize? {
             didSet {
                 if oldValue != preferredContentSize {
@@ -183,13 +184,28 @@ class UIHostingCollectionViewCell<
         if let contentHostingController = contentHostingController {
             if contentHostingController.view.frame != contentView.bounds {
                 contentHostingController.view.frame = contentView.bounds
-                contentHostingController.view.setNeedsLayout()
-                contentHostingController.view.layoutIfNeeded()
+                
+                if contentHostingController.view.frame.rounded(.up) != contentView.bounds.rounded(.up) {
+                    contentHostingController.view.setNeedsLayout()
+                    contentHostingController.view.layoutIfNeeded()
+                }
             }
         }
     }
     
     override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+        var targetSize = targetSize
+        
+        if let maximumSize = configuration?.maximumSize, let dimensions = content._precomputedDimensionsThatFit(in: maximumSize) {
+            if let size = CGSize(dimensions), size.fits(targetSize) {
+                return size
+            } else {
+                targetSize = CGSize(dimensions, default: targetSize)
+                    .rounded(.up)
+                    .clamped(to: configuration?.maximumSize)
+            }
+        }
+        
         guard let contentHostingController = contentHostingController else {
             return .init(width: 1, height: 1)
         }
@@ -202,6 +218,18 @@ class UIHostingCollectionViewCell<
         withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
         verticalFittingPriority: UILayoutPriority
     ) -> CGSize {
+        var targetSize = targetSize
+        
+        if let maximumSize = configuration?.maximumSize, let dimensions = content._precomputedDimensionsThatFit(in: maximumSize) {
+            if let size = CGSize(dimensions), size.fits(targetSize) {
+                return size
+            } else {
+                targetSize = CGSize(dimensions, default: targetSize)
+                    .rounded(.up)
+                    .clamped(to: configuration?.maximumSize)
+            }
+        }
+        
         guard let contentHostingController = contentHostingController else {
             return .init(width: 1, height: 1)
         }
@@ -225,16 +253,20 @@ class UIHostingCollectionViewCell<
         super.isHighlighted = false
         super.isSelected = false
     }
-        
+    
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
         if let size = cache.preferredContentSize {
             layoutAttributes.size = size
+                .rounded(.up)
+                .clamped(to: configuration?.maximumSize)
             
             return layoutAttributes
         } else if let relativeFrame = preferences.relativeFrame {
-            let size = relativeFrame.resolve(in: layoutAttributes.size)
+            let size = relativeFrame.sizeThatFits(in: layoutAttributes.size)
+                .rounded(.up)
+                .clamped(to: configuration?.maximumSize)
             
             layoutAttributes.size = size
             
@@ -247,7 +279,21 @@ class UIHostingCollectionViewCell<
             
             return layoutAttributes
         } else {
-            return layoutAttributes
+            if !(parentViewController?.configuration._ignorePreferredCellLayoutAttributes ?? false) {
+                let result = super.preferredLayoutAttributesFitting(layoutAttributes)
+                
+                if cache.preferredContentSize == nil || result.size != bounds.size {
+                    cache.preferredContentSize = result.size
+                        .rounded(.up)
+                        .clamped(to: configuration?.maximumSize)
+                }
+                
+                updateCollectionCache()
+                
+                return result
+            } else {
+                return layoutAttributes
+            }
         }
     }
     
@@ -259,7 +305,10 @@ class UIHostingCollectionViewCell<
         }
         
         if layoutAttributes.size != contentHostingController.view.frame.size {
-            self.cache.preferredContentSize = relativeFrame.resolve(in: layoutAttributes.size)
+            self.cache.preferredContentSize = relativeFrame
+                .sizeThatFits(in: layoutAttributes.size)
+                .rounded(.up)
+                .clamped(to: configuration?.maximumSize)
             
             contentHostingController.update(disableAnimation: true, forced: true)
         }
@@ -271,6 +320,10 @@ extension UIHostingCollectionViewCell {
         disableAnimation: Bool = true,
         forced: Bool = false
     ) {
+        guard configuration != nil else {
+            return
+        }
+        
         if forced {
             cache.content = nil
         }
@@ -286,6 +339,10 @@ extension UIHostingCollectionViewCell {
         inParent parentViewController: ParentViewControllerType?,
         isPrototype: Bool = false
     ) {
+        if contentHostingController == nil {
+            update()
+        }
+        
         guard let contentHostingController = contentHostingController else {
             assertionFailure()
             
@@ -321,19 +378,37 @@ extension UIHostingCollectionViewCell {
 // MARK: - Auxiliary Implementation -
 
 extension UIHostingCollectionViewCell {
-    private struct RootView: ExpressibleByNilLiteral, View {
-        var content: Content?
-        var configuration: Configuration?
-        var state: State?
-        var preferences: Binding<Preferences>?
-        var cache: Cache?
-        var updateCollectionCache: (() -> Void)?
-        
-        init(base: UIHostingCollectionViewCell?) {
-            guard let base = base else {
-                return
+    private struct RootView: View {
+        struct _CellProxyBase: SwiftUIX._CellProxyBase {
+            weak var base: UIHostingCollectionViewCell?
+            
+            var globalFrame: CGRect {
+                base?.globalFrame ?? .zero
             }
             
+            func invalidateLayout() {
+                base?.cache.contentSize = nil
+                base?.updateCollectionCache()
+                base?.parentViewController?.invalidateLayout()
+            }
+            
+            func performWithAnimation(_ action: () -> ()) {
+                
+            }
+        }
+        
+        var _cellProxyBase: _CellProxyBase
+        var _collectionViewProxy: CollectionViewProxy
+        var content: Content
+        var configuration: Configuration?
+        var state: State
+        var preferences: Binding<Preferences>
+        var cache: Cache
+        var updateCollectionCache: (() -> Void)
+        
+        init(base: UIHostingCollectionViewCell) {
+            _cellProxyBase = _CellProxyBase(base: base)
+            _collectionViewProxy = .init(base.parentViewController)
             content = base.content
             configuration = base.configuration
             state = base.state
@@ -345,26 +420,20 @@ extension UIHostingCollectionViewCell {
             updateCollectionCache = { [weak base] in base?.updateCollectionCache() }
         }
         
-        public init(nilLiteral: ()) {
-            
-        }
-        
         public var body: some View {
-            if let content = content,
-               let configuration = configuration,
-               let state = state,
-               let preferences = preferences,
-               let cache = cache,
-               let updateCollectionCache = updateCollectionCache
-            {
+            if let configuration = configuration {
                 content
+                    .environment(\._cellProxy, .init(base: _cellProxyBase))
+                    .environment(\._collectionViewProxy, .init(.constant(_collectionViewProxy)))
                     .transformEnvironment(\._relativeFrameResolvedValues) { value in
                         guard let relativeFrameID = preferences.wrappedValue.relativeFrame?.id else {
                             if let preferredContentSize = cache.preferredContentSize {
-                                value[0] = .init(
-                                    width: preferredContentSize.width,
-                                    height: preferredContentSize.height
-                                )
+                                if value[0] == nil {
+                                    value[0] = .init(
+                                        width: preferredContentSize.width,
+                                        height: preferredContentSize.height
+                                    )
+                                }
                             }
                             
                             return
@@ -383,24 +452,32 @@ extension UIHostingCollectionViewCell {
                     .environment(\.isCellHighlighted, state.isHighlighted)
                     .environment(\.isCellSelected, state.isSelected)
                     .onPreferenceChange(_CollectionOrListCellPreferences.PreferenceKey.self) {
-                        preferences._collectionOrListCellPreferences.wrappedValue = $0
-                        
-                        updateCollectionCache()
+                        if preferences._collectionOrListCellPreferences.wrappedValue != $0 {
+                            preferences._collectionOrListCellPreferences.wrappedValue = $0
+                            
+                            updateCollectionCache()
+                        }
                     }
                     .onPreferenceChange(_NamedViewDescription.PreferenceKey.self) {
-                        preferences._namedViewDescription.wrappedValue = $0.last
-                        
-                        updateCollectionCache()
+                        if preferences._namedViewDescription.wrappedValue != $0.last {
+                            preferences._namedViewDescription.wrappedValue = $0.last
+                            
+                            updateCollectionCache()
+                        }
                     }
                     .onPreferenceChange(DragItem.PreferenceKey.self) {
-                        preferences.dragItems.wrappedValue = $0
-                        
-                        updateCollectionCache()
+                        if preferences.dragItems.wrappedValue != $0 {
+                            preferences.dragItems.wrappedValue = $0
+                            
+                            updateCollectionCache()
+                        }
                     }
                     .onPreferenceChange(RelativeFrame.PreferenceKey.self) {
-                        preferences.relativeFrame.wrappedValue = $0.last
-                        
-                        updateCollectionCache()
+                        if preferences.relativeFrame.wrappedValue != $0.last {
+                            preferences.relativeFrame.wrappedValue = $0.last
+                            
+                            updateCollectionCache()
+                        }
                     }
                     .edgesIgnoringSafeArea(.all)
                     .id(configuration.id)
@@ -411,14 +488,14 @@ extension UIHostingCollectionViewCell {
     private class ContentHostingController: UIHostingController<RootView> {
         weak var base: UIHostingCollectionViewCell?
         
-        init(base: UIHostingCollectionViewCell?) {
+        init(base: UIHostingCollectionViewCell) {
             self.base = base
             
-            super.init(rootView: nil)
+            super.init(rootView: .init(base: base))
             
             view.backgroundColor = nil
             
-            update()
+            update(disableAnimation: true)
         }
         
         @objc required public init?(coder aDecoder: NSCoder) {
@@ -433,6 +510,8 @@ extension UIHostingCollectionViewCell {
                 withHorizontalFittingPriority: nil,
                 verticalFittingPriority: nil
             )
+            .rounded(.up)
+            .clamped(to: base?.configuration?.maximumSize)
         }
         
         public func systemLayoutSizeFitting(
@@ -445,9 +524,11 @@ extension UIHostingCollectionViewCell {
                 withHorizontalFittingPriority: horizontalFittingPriority,
                 verticalFittingPriority: verticalFittingPriority
             )
+            .rounded(.up)
+            .clamped(to: base?.configuration?.maximumSize)
         }
         
-        func move(toParent parent: _opaque_UIHostingCollectionViewController?, ofCell cell: UIHostingCollectionViewCell) {
+        func move(toParent parent: ParentViewControllerType?, ofCell cell: UIHostingCollectionViewCell) {
             if let parent = parent {
                 if let existingParent = self.parent, existingParent !== parent {
                     move(toParent: nil, ofCell: cell)
@@ -456,6 +537,8 @@ extension UIHostingCollectionViewCell {
                 if self.parent == nil {
                     withoutAnimation {
                         let isNavigationBarHidden = parent.navigationController?.isNavigationBarHidden
+                        
+                        rootView._collectionViewProxy = .init(parent)
                         
                         self.willMove(toParent: parent)
                         parent.addChild(self)
@@ -472,6 +555,8 @@ extension UIHostingCollectionViewCell {
                 }
             } else {
                 withoutAnimation {
+                    rootView._collectionViewProxy = .init()
+                    
                     willMove(toParent: nil)
                     view.removeFromSuperview()
                     removeFromParent()
@@ -479,7 +564,10 @@ extension UIHostingCollectionViewCell {
             }
         }
         
-        func update(disableAnimation: Bool = true, forced: Bool = false) {
+        func update(
+            disableAnimation: Bool = true,
+            forced: Bool = false
+        ) {
             guard let base = base else {
                 return
             }
@@ -495,20 +583,14 @@ extension UIHostingCollectionViewCell {
                 }
             }
             
-            let newMainView = RootView(base: base)
-            
-            if disableAnimation {
-                withoutAnimation {
-                    rootView = newMainView
+            withoutAnimation(disableAnimation) {
+                rootView = .init(base: base)
+                
+                if forced {
+                    view.setNeedsLayout()
+                    view.setNeedsDisplay()
+                    view.layoutIfNeeded()
                 }
-            } else {
-                rootView = newMainView
-            }
-            
-            if forced {
-                view.setNeedsLayout()
-                view.setNeedsDisplay()
-                view.layoutIfNeeded()
             }
         }
     }

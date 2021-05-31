@@ -20,7 +20,7 @@ public struct PartRoundedRectangle: Shape {
         return Path(
             AppKitOrUIKitBezierPath(
                 roundedRect: rect,
-                byRoundingCorners: .init(corners),
+                byRoundingCorners: corners,
                 cornerRadii: cornerRadii
             )
             .cgPath
@@ -38,6 +38,13 @@ extension View {
     ) -> some View {
         clipShape(PartRoundedRectangle(corners: corners, cornerRadii: cornerRadii))
     }
+    
+    #if os(iOS) || os(tvOS) || targetEnvironment(macCatalyst)
+    @_disfavoredOverload
+    public func cornerRadius(_ corners: UIRectCorner, _ cornerRadii: CGFloat) -> some View {
+        clipShape(PartRoundedRectangle(corners: .init(corners), cornerRadii: cornerRadii))
+    }
+    #endif
 }
 
 #endif

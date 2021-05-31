@@ -32,6 +32,18 @@ extension UIHostingCollectionViewSupplementaryView {
             .init(kind: kind, item: itemIdentifier, section: sectionIdentifier)
         }
     }
+    
+    struct Cache {
+        var content: Content?
+        var contentSize: CGSize?
+        var preferredContentSize: CGSize? {
+            didSet {
+                if oldValue != preferredContentSize {
+                    content = nil
+                }
+            }
+        }
+    }
 }
 
 class UIHostingCollectionViewSupplementaryView<
@@ -59,6 +71,8 @@ class UIHostingCollectionViewSupplementaryView<
         }
     }
     
+    var cache = Cache()
+    
     private var contentHostingController: ContentHostingController?
     
     private weak var parentViewController: ParentViewControllerType?
@@ -74,14 +88,17 @@ class UIHostingCollectionViewSupplementaryView<
         fatalError("init(coder:) has not been implemented")
     }
     
-    override public func layoutSubviews() {
+    override func layoutSubviews() {
         super.layoutSubviews()
         
         if let contentHostingController = contentHostingController {
             if contentHostingController.view.frame != bounds {
                 contentHostingController.view.frame = bounds
-                contentHostingController.view.setNeedsLayout()
-                contentHostingController.view.layoutIfNeeded()
+                
+                if contentHostingController.view.frame.rounded(.up) != bounds.rounded(.up) {
+                    contentHostingController.view.setNeedsLayout()
+                    contentHostingController.view.layoutIfNeeded()
+                }
             }
         }
     }
@@ -117,15 +134,47 @@ class UIHostingCollectionViewSupplementaryView<
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
-        return layoutAttributes
+        if let size = cache.preferredContentSize {
+            layoutAttributes.size = size
+            
+            return layoutAttributes
+        } else {
+            if !(parentViewController?.configuration._ignorePreferredCellLayoutAttributes ?? false) {
+                let result = super.preferredLayoutAttributesFitting(layoutAttributes)
+                
+                if cache.preferredContentSize == nil || result.size != bounds.size {
+                    cache.preferredContentSize = result.size
+                        .rounded(.up)
+                        .clamped(to: configuration?.maximumSize)
+                }
+                
+                updateCollectionCache()
+                
+                return result
+            } else {
+                return layoutAttributes
+            }
+        }
     }
 }
 
 extension UIHostingCollectionViewSupplementaryView {
+    func update(disableAnimation: Bool = true, forced: Bool = false) {
+        if let contentHostingController = contentHostingController {
+            contentHostingController.update(disableAnimation: disableAnimation, forced: forced)
+        } else {
+            contentHostingController = ContentHostingController(base: self)
+        }
+    }
+    
     func supplementaryViewWillDisplay(
         inParent parentViewController: ParentViewControllerType?,
         isPrototype: Bool = false
     ) {
+        if contentHostingController == nil {
+            update()
+        }
+        
         guard let contentHostingController = contentHostingController else {
             assertionFailure()
             
@@ -149,58 +198,55 @@ extension UIHostingCollectionViewSupplementaryView {
         
     }
     
-    func update(disableAnimation: Bool = true, forced: Bool = false) {
-        if let contentHostingController = contentHostingController {
-            contentHostingController.update(disableAnimation: disableAnimation, forced: forced)
-        } else {
-            contentHostingController = ContentHostingController(base: self)
+    func updateCollectionCache() {
+        guard let configuration = configuration, let parentViewController = parentViewController else {
+            return
         }
+        
+        parentViewController.cache.setSupplementaryViewCache(cache, for: configuration.id)
     }
 }
 
 // MARK: - Auxiliary Implementation -
 
 extension UIHostingCollectionViewSupplementaryView {
-    private struct RootView: ExpressibleByNilLiteral, View {
-        var id: AnyHashable
+    private struct RootView: View {
+        var _collectionViewProxy: CollectionViewProxy
         var configuration: Configuration?
-        var content: AnyView?
         
-        init(base: UIHostingCollectionViewSupplementaryView?) {
-            id = UUID()
-            configuration = base?.configuration
-            content = configuration?.content
+        init(base: UIHostingCollectionViewSupplementaryView) {
+            _collectionViewProxy = .init(base.parentViewController)
+            configuration = base.configuration
         }
         
-        public init(nilLiteral: ()) {
-            self.id = UUID()
-        }
-        
-        public var body: some View {
-            content?
-                .id(id)
-                .edgesIgnoringSafeArea(.all)
+        var body: some View {
+            if let configuration = configuration, let content = configuration.content {
+                content
+                    .environment(\._collectionViewProxy, .init(.constant(_collectionViewProxy)))
+                    .edgesIgnoringSafeArea(.all)
+                    .id(configuration.id)
+            }
         }
     }
     
-    private class ContentHostingController: CocoaHostingController<RootView> {
+    private class ContentHostingController: UIHostingController<RootView> {
         weak var base: UIHostingCollectionViewSupplementaryView?
         
-        init(base: UIHostingCollectionViewSupplementaryView?) {
+        init(base: UIHostingCollectionViewSupplementaryView) {
             self.base = base
             
-            super.init(mainView: nil)
+            super.init(rootView: .init(base: base))
             
             view.backgroundColor = nil
-
-            update()
+            
+            update(disableAnimation: true)
         }
         
-        @objc required public init?(coder aDecoder: NSCoder) {
+        @objc required init?(coder aDecoder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
         
-        public func systemLayoutSizeFitting(
+        func systemLayoutSizeFitting(
             _ targetSize: CGSize
         ) -> CGSize {
             sizeThatFits(
@@ -208,9 +254,11 @@ extension UIHostingCollectionViewSupplementaryView {
                 withHorizontalFittingPriority: nil,
                 verticalFittingPriority: nil
             )
+            .rounded(.up)
+            .clamped(to: base?.configuration?.maximumSize)
         }
         
-        public func systemLayoutSizeFitting(
+        func systemLayoutSizeFitting(
             _ targetSize: CGSize,
             withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
             verticalFittingPriority: UILayoutPriority
@@ -220,10 +268,12 @@ extension UIHostingCollectionViewSupplementaryView {
                 withHorizontalFittingPriority: horizontalFittingPriority,
                 verticalFittingPriority: verticalFittingPriority
             )
+            .rounded(.up)
+            .clamped(to: base?.configuration?.maximumSize)
         }
         
         func move(
-            toParent parent: _opaque_UIHostingCollectionViewController?,
+            toParent parent: ParentViewControllerType?,
             ofSupplementaryView supplementaryView: UIHostingCollectionViewSupplementaryView
         ) {
             if let parent = parent {
@@ -232,18 +282,22 @@ extension UIHostingCollectionViewSupplementaryView {
                 }
                 
                 if self.parent == nil {
-                    self.willMove(toParent: parent)
-                    parent.addChild(self)
-                    supplementaryView.addSubview(view)
-                    view.frame = supplementaryView.bounds
-                    didMove(toParent: parent)
+                    withoutAnimation {
+                        self.willMove(toParent: parent)
+                        parent.addChild(self)
+                        supplementaryView.addSubview(view)
+                        view.frame = supplementaryView.bounds
+                        didMove(toParent: parent)
+                    }
                 } else {
                     assertionFailure()
                 }
             } else {
-                willMove(toParent: nil)
-                view.removeFromSuperview()
-                removeFromParent()
+                withoutAnimation {
+                    willMove(toParent: nil)
+                    view.removeFromSuperview()
+                    removeFromParent()
+                }
             }
         }
         
@@ -252,25 +306,25 @@ extension UIHostingCollectionViewSupplementaryView {
                 return
             }
             
+            let currentConfiguration = rootView.configuration
+            let newConfiguration = base.configuration
+            
             if !forced {
-                if let currentConfiguration = mainView.configuration, let newConfiguration = base.configuration {
+                if let currentConfiguration = currentConfiguration, let newConfiguration = newConfiguration {
                     guard currentConfiguration.id != newConfiguration.id else {
                         return
                     }
                 }
             }
             
-            if disableAnimation {
-                withAnimation(nil) {
-                    mainView = .init(base: base)
+            withoutAnimation(disableAnimation) {
+                rootView = .init(base: base)
+                
+                if forced {
+                    view.setNeedsLayout()
+                    view.setNeedsDisplay()
+                    view.layoutIfNeeded()
                 }
-            } else {
-                mainView = .init(base: base)
-            }
-            
-            if forced {
-                view.setNeedsLayout()
-                view.setNeedsDisplay()
             }
         }
     }

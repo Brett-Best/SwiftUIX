@@ -55,7 +55,7 @@ extension CollectionView {
                 CollectionOfOne(ListSection(0, items: data.lazy.map(_IdentifierHashedValue.init))),
                 sectionHeader: Never.produce,
                 sectionFooter: Never.produce,
-                rowContent: { rowContent($0.value) }
+                rowContent: { rowContent($1.value) }
             )
             .eraseToAnyView()
         )
@@ -71,7 +71,7 @@ extension CollectionView {
                 CollectionOfOne(ListSection(0, items: data.lazy.map({ _IdentifierHashedValue(KeyPathHashIdentifiableValue(value: $0, keyPath: id)) }))),
                 sectionHeader: Never.produce,
                 sectionFooter: Never.produce,
-                rowContent: { rowContent($0.value.value) }
+                rowContent: { rowContent($1.value.value) }
             )
             .eraseToAnyView()
         )
@@ -79,6 +79,30 @@ extension CollectionView {
 }
 
 extension CollectionView {
+    public init<
+        Data: RandomAccessCollection,
+        SectionType: Identifiable,
+        ItemType: Identifiable,
+        Header: View,
+        RowContent: View,
+        Footer: View
+    >(
+        _ data: Data,
+        @ViewBuilder rowContent: @escaping (SectionType, ListSection<SectionType, ItemType>.Items) -> Section<Header, ForEach<Data.Element.Items, ItemType.ID, RowContent>, Footer>
+    ) where Data.Element == ListSection<SectionType, ItemType> {
+        self.init(
+            internalBody: _CollectionView(
+                data.lazy.map { section in
+                    ListSection(section, items: section.items)
+                },
+                sectionHeader: { rowContent($0.model, $0.items).header },
+                sectionFooter: { rowContent($0.model, $0.items).footer },
+                rowContent: { rowContent($0.model, $0.items).content.content($1) }
+            )
+            .eraseToAnyView()
+        )
+    }
+    
     public init<
         Data: RandomAccessCollection,
         ID: Hashable,
@@ -256,6 +280,20 @@ extension CollectionView {
         return self
         #endif
     }
+    
+    @available(iOS 13.4, *)
+    @available(tvOS, unavailable)
+    public func onDrop(delegate: CollectionViewDropDelegate) -> Self {
+        then({ $0._dynamicViewContentTraitValues.collectionViewDropDelegate = delegate })
+    }
+    
+    @available(iOS 13.4, *)
+    @available(tvOS, unavailable)
+    public func onDrop(
+        perform action: (([DragItem], Int) -> Void)?
+    ) -> Self {
+        then({ $0._dynamicViewContentTraitValues.onDrop = action })
+    }
 }
 
 extension CollectionView {
@@ -263,9 +301,33 @@ extension CollectionView {
     public func allowsMultipleSelection(_ allowsMultipleSelection: Bool) -> Self {
         then({ $0._collectionViewConfiguration.allowsMultipleSelection = allowsMultipleSelection })
     }
+    
+    /// Binds the collection view's drag state to a boolean value.
+    public func isDragActive(_ isDragActive: Binding<Bool>) -> Self {
+        then({ $0._collectionViewConfiguration.isDragActive = isDragActive })
+    }
 }
 
 extension CollectionView {
+    /// Adds a condition whether for whether the collection view disables bouncing when scrolling reaches the end of the content
+    public func scrollBounceDisabled(_ disabled: Bool) -> Self {
+        then {
+            if !disabled {
+                $0._scrollViewConfiguration.alwaysBounceHorizontal = $0._scrollViewConfiguration.axes.contains(.horizontal)
+                $0._scrollViewConfiguration.alwaysBounceVertical =  $0._scrollViewConfiguration.axes.contains(.vertical)
+            } else {
+                $0._scrollViewConfiguration.alwaysBounceHorizontal = false
+                $0._scrollViewConfiguration.alwaysBounceVertical = false
+            }
+        }
+    }
+    
+    /// Sets the collection view's scroll content-offset behavior.
+    public func scrollContentOffsetBehavior(_ contentOffsetBehavior: ScrollContentOffsetBehavior) -> Self {
+        then({ $0._scrollViewConfiguration.contentOffsetBehavior = contentOffsetBehavior })
+    }
+    
+    /// Performs an action upon scroll content-offset change.
     public func onOffsetChange(_ body: @escaping (Offset) -> ()) -> Self {
         then({ $0._scrollViewConfiguration.onOffsetChange = body })
     }
@@ -292,6 +354,10 @@ extension CollectionView {
     public func contentInsets(_ inset: EdgeInsets) -> Self {
         then({ $0._scrollViewConfiguration.contentInset = inset })
     }
+    
+    public func contentInsets(_ edges: Edge.Set, _ length: CGFloat?) -> Self {
+        contentInsets(.init(edges, length))
+    }
 }
 
 extension CollectionView {
@@ -317,11 +383,17 @@ extension CollectionView {
     }
 }
 
+extension CollectionView {
+    public func _ignorePreferredCellLayoutAttributes() -> Self {
+        then({ $0._collectionViewConfiguration._ignorePreferredCellLayoutAttributes = true })
+    }
+}
+
 #endif
 
 // MARK: - Auxiliary Implementation -
 
-fileprivate struct _CollectionViewSectionedItem<Item: Identifiable, SectionID: Hashable>: Hashable, Identifiable {
+struct _CollectionViewSectionedItem<Item: Identifiable, SectionID: Hashable>: Hashable, Identifiable {
     let item: Item
     let section: SectionID
     
@@ -339,15 +411,19 @@ fileprivate struct _CollectionViewSectionedItem<Item: Identifiable, SectionID: H
     }
 }
 
-fileprivate struct _IdentifierHashedValue<Value: Identifiable>: Hashable, Identifiable {
+struct _IdentifierHashedValue<Value: Identifiable>: CustomStringConvertible, Hashable, Identifiable {
     let value: Value
     
-    init(_ value: Value) {
-        self.value = value
+    var description: String {
+        String(describing: value)
     }
     
     var id: Value.ID {
         value.id
+    }
+    
+    init(_ value: Value) {
+        self.value = value
     }
     
     func hash(into hasher: inout Hasher) {
