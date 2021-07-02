@@ -26,6 +26,7 @@ public struct SearchBar: DefaultTextInputType {
     #if os(iOS) || targetEnvironment(macCatalyst)
     private var appKitOrUIKitFont: UIFont?
     private var appKitOrUIKitForegroundColor: UIColor?
+    private var appKitOrUIKitSearchFieldBackgroundColor: UIColor?
     private var searchBarStyle: UISearchBar.Style = .minimal
     private var iconImageConfiguration: [UISearchBar.Icon: AppKitOrUIKitImage] = [:]
     #endif
@@ -93,15 +94,17 @@ extension SearchBar: UIViewRepresentable {
         environment: EnvironmentValues
     ) {
         style: do {
-            if (appKitOrUIKitFont != nil || environment.font != nil) || appKitOrUIKitForegroundColor != nil {
-                if let textField = uiView._retrieveTextField() {
-                    if let font = appKitOrUIKitFont ?? environment.font?.toUIFont() {
-                        textField.font = font
-                    }
-                    
-                    if let foregroundColor = appKitOrUIKitForegroundColor {
-                        textField.textColor = foregroundColor
-                    }
+            if (appKitOrUIKitFont != nil || environment.font != nil) || appKitOrUIKitForegroundColor != nil || appKitOrUIKitSearchFieldBackgroundColor != nil {
+                if let font = appKitOrUIKitFont ?? environment.font?.toUIFont() {
+                    uiView.searchTextField.font = font
+                }
+                
+                if let foregroundColor = appKitOrUIKitForegroundColor {
+                    uiView.searchTextField.textColor = foregroundColor
+                }
+                
+                if let backgroundColor = appKitOrUIKitSearchFieldBackgroundColor {
+                    uiView.searchTextField.backgroundColor = backgroundColor
                 }
             }
             
@@ -285,6 +288,20 @@ extension SearchBar {
     
     public func foregroundColor(_ foregroundColor: AppKitOrUIKitColor) -> Self {
         then({ $0.appKitOrUIKitForegroundColor = foregroundColor })
+    }
+    
+    @_disfavoredOverload
+    public func foregroundColor(_ foregroundColor: Color) -> Self {
+        then({ $0.appKitOrUIKitForegroundColor = foregroundColor.toUIColor() })
+    }
+    
+    public func textFieldBackgroundColor(_ backgroundColor: UIColor) -> Self {
+        then({ $0.appKitOrUIKitSearchFieldBackgroundColor = backgroundColor })
+    }
+
+    @_disfavoredOverload
+    public func textFieldBackgroundColor(_ backgroundColor: Color) -> Self {
+        then({ $0.appKitOrUIKitSearchFieldBackgroundColor = backgroundColor.toUIColor() })
     }
     
     public func searchBarStyle(_ searchBarStyle: UISearchBar.Style) -> Self {
