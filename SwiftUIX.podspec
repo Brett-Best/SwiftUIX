@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name         = "SwiftUIX"
-  spec.version      = "0.0.5"
+  spec.version      = "0.0.7"
   spec.summary      = "An extension to the standard SwiftUI library."
   spec.description  = <<-DESC
 SwiftUIX attempts to fill the gaps of the still nascent SwiftUI framework, providing an extensive suite of components, extensions and utilities to complement the standard library.
