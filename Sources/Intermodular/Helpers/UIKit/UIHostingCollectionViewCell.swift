@@ -128,7 +128,7 @@ class UIHostingCollectionViewCell<
             
             _isFocused = newValue
             
-            update()
+            update(disableAnimation: true, forced: false)
         }
     }
     
@@ -138,7 +138,7 @@ class UIHostingCollectionViewCell<
                 return
             }
             
-            update()
+            update(disableAnimation: true, forced: false)
         }
     }
     
@@ -148,7 +148,7 @@ class UIHostingCollectionViewCell<
                 return
             }
             
-            update()
+            update(disableAnimation: true, forced: false)
         }
     }
     
@@ -206,8 +206,7 @@ class UIHostingCollectionViewCell<
                 return size
             } else {
                 targetSize = CGSize(dimensions, default: targetSize)
-                    .rounded(.up)
-                    .clamped(to: configuration?.maximumSize)
+                    .clamped(to: configuration?.maximumSize?.rounded(.down))
             }
         }
         
@@ -230,8 +229,7 @@ class UIHostingCollectionViewCell<
                 return size
             } else {
                 targetSize = CGSize(dimensions, default: targetSize)
-                    .rounded(.up)
-                    .clamped(to: configuration?.maximumSize)
+                    .clamped(to: configuration?.maximumSize?.rounded(.down))
             }
         }
         
@@ -265,13 +263,13 @@ class UIHostingCollectionViewCell<
         if let size = cache.preferredContentSize {
             layoutAttributes.size = size
                 .rounded(.up)
-                .clamped(to: configuration?.maximumSize)
+                .clamped(to: configuration?.maximumSize?.rounded(.down))
             
             return layoutAttributes
         } else if let relativeFrame = preferences.relativeFrame {
             let size = relativeFrame.sizeThatFits(in: layoutAttributes.size)
                 .rounded(.up)
-                .clamped(to: configuration?.maximumSize)
+                .clamped(to: configuration?.maximumSize?.rounded(.down))
             
             layoutAttributes.size = size
             
@@ -284,13 +282,16 @@ class UIHostingCollectionViewCell<
             
             return layoutAttributes
         } else {
-            if !(parentViewController?.configuration._ignorePreferredCellLayoutAttributes ?? false) {
+            guard let parentViewController = parentViewController else {
+                return layoutAttributes
+            }
+            
+            if !parentViewController.configuration._ignorePreferredCellLayoutAttributes {
                 let result = super.preferredLayoutAttributesFitting(layoutAttributes)
                 
                 if cache.preferredContentSize == nil || result.size != bounds.size {
                     cache.preferredContentSize = result.size
-                        .rounded(.up)
-                        .clamped(to: configuration?.maximumSize)
+                        .clamped(to: configuration?.maximumSize?.rounded(.down))
                 }
                 
                 updateCollectionCache()
@@ -304,7 +305,11 @@ class UIHostingCollectionViewCell<
     
     override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
-        
+
+        guard let parentViewController = parentViewController, !parentViewController.configuration._ignorePreferredCellLayoutAttributes else {
+            return
+        }
+
         guard let contentHostingController = contentHostingController, let relativeFrame = preferences.relativeFrame else {
             return
         }
@@ -313,17 +318,22 @@ class UIHostingCollectionViewCell<
             self.cache.preferredContentSize = relativeFrame
                 .sizeThatFits(in: layoutAttributes.size)
                 .rounded(.up)
-                .clamped(to: configuration?.maximumSize)
+                .clamped(to: configuration?.maximumSize?.rounded(.down))
             
-            contentHostingController.update(disableAnimation: true, forced: true)
+            contentHostingController.update(
+                disableAnimation: true,
+                forced: false,
+                refresh: false
+            )
         }
     }
 }
 
 extension UIHostingCollectionViewCell {
     func update(
-        disableAnimation: Bool = true,
-        forced: Bool = false
+        disableAnimation: Bool,
+        forced: Bool,
+        refresh: Bool = false
     ) {
         guard configuration != nil else {
             return
@@ -334,7 +344,11 @@ extension UIHostingCollectionViewCell {
         }
         
         if let contentHostingController = contentHostingController {
-            contentHostingController.update(disableAnimation: disableAnimation, forced: forced)
+            contentHostingController.update(
+                disableAnimation: disableAnimation,
+                forced: forced,
+                refresh: refresh
+            )
         } else {
             contentHostingController = ContentHostingController(base: self)
         }
@@ -345,7 +359,7 @@ extension UIHostingCollectionViewCell {
         isPrototype: Bool = false
     ) {
         if contentHostingController == nil {
-            update()
+            update(disableAnimation: true, forced: false)
         }
         
         guard let contentHostingController = contentHostingController else {
@@ -405,6 +419,7 @@ extension UIHostingCollectionViewCell {
                 base.updateCollectionCache()
                 
                 parentViewController.refresh()
+                parentViewController.invalidateLayout()
             }
         }
         
@@ -506,7 +521,7 @@ extension UIHostingCollectionViewCell {
             
             view.backgroundColor = nil
             
-            update(disableAnimation: true)
+            update(disableAnimation: true, forced: false, refresh: false)
         }
         
         @objc required public init?(coder aDecoder: NSCoder) {
@@ -522,7 +537,7 @@ extension UIHostingCollectionViewCell {
                 verticalFittingPriority: nil
             )
             .rounded(.up)
-            .clamped(to: base?.configuration?.maximumSize)
+            .clamped(to: base?.configuration?.maximumSize?.rounded(.down))
         }
         
         public func systemLayoutSizeFitting(
@@ -536,7 +551,7 @@ extension UIHostingCollectionViewCell {
                 verticalFittingPriority: verticalFittingPriority
             )
             .rounded(.up)
-            .clamped(to: base?.configuration?.maximumSize)
+            .clamped(to: base?.configuration?.maximumSize?.rounded(.down))
         }
         
         func move(toParent parent: ParentViewControllerType?, ofCell cell: UIHostingCollectionViewCell) {
@@ -576,8 +591,9 @@ extension UIHostingCollectionViewCell {
         }
         
         func update(
-            disableAnimation: Bool = true,
-            forced: Bool = false
+            disableAnimation: Bool,
+            forced: Bool,
+            refresh: Bool
         ) {
             guard let base = base else {
                 return
@@ -589,6 +605,10 @@ extension UIHostingCollectionViewCell {
             if !forced {
                 if let currentConfiguration = currentConfiguration, let newConfiguration = newConfiguration {
                     guard currentConfiguration.id != newConfiguration.id || rootView.state != base.state else {
+                        if refresh {
+                            rootView = .init(base: base)
+                        }
+
                         return
                     }
                 }

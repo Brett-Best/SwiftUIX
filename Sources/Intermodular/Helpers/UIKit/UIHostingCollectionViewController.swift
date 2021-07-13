@@ -88,7 +88,7 @@ final class UIHostingCollectionViewController<
     
     lazy var collectionView: _UICollectionView = {
         let collectionView = _UICollectionView(parent: self)
-                
+        
         collectionView.delegate = self
         #if !os(tvOS)
         collectionView.dragDelegate = dragAndDropDelegate
@@ -158,7 +158,7 @@ final class UIHostingCollectionViewController<
             
             self.cache.preconfigure(cell: cell)
             
-            cell.update()
+            cell.update(disableAnimation: true, forced: false)
             
             return cell
         }
@@ -421,7 +421,7 @@ extension UIHostingCollectionViewController {
     }
     
     func refreshVisibleCellsAndSupplementaryViews() {
-        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).forEach { view in
+        for view in collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader) {
             guard let view = view as? UICollectionViewSupplementaryViewType else {
                 return
             }
@@ -429,21 +429,21 @@ extension UIHostingCollectionViewController {
             view.cache.content = nil
             view.configuration?.viewProvider = viewProvider
             
-            view.update(forced: true)
+            view.update(disableAnimation: true, forced: true)
         }
         
-        collectionView.visibleCells.forEach { cell in
+        for cell in collectionView.visibleCells {
             guard let cell = cell as? UICollectionViewCellType else {
                 return
             }
             
             cell.cache.content = nil
             cell.configuration?.viewProvider = viewProvider
-            
-            cell.update(forced: false)
+                        
+            cell.update(disableAnimation: true, forced: false, refresh: true)
         }
         
-        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionFooter).forEach { view in
+        for view in collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionFooter) {
             guard let view = view as? UICollectionViewSupplementaryViewType else {
                 return
             }
@@ -451,7 +451,7 @@ extension UIHostingCollectionViewController {
             view.cache.content = nil
             view.configuration?.viewProvider = viewProvider
             
-            view.update(forced: true)
+            view.update(disableAnimation: true, forced: true)
         }
     }
 }
@@ -568,7 +568,7 @@ extension UIHostingCollectionViewController {
             guard let parent = parent else {
                 return UICollectionViewFlowLayout.automaticSize
             }
-
+            
             return parent.collectionView(
                 self,
                 layout: collectionViewLayout,
